@@ -1,5 +1,4 @@
-import { PlaywrightCrawler, Request } from '@crawlee/playwright';
-import { Page, ElementHandle } from 'playwright';
+import { chromium, firefox, webkit, Browser, BrowserContext, Page, ElementHandle } from 'playwright';
 import { SiteConfig, CrawlerRule } from '../config/crawlerConfig';
 import { crawlerConfigs } from '../config/crawlerConfig';
 
@@ -14,34 +13,17 @@ export interface CrawlerData {
 }
 
 export class WebCrawler {
-  private crawler: PlaywrightCrawler;
   private crawledData: Map<string, CrawlerData[]>;
   private debug: boolean;
+  private browser: Browser | null;
+  private context: BrowserContext | null;
 
   constructor(debug = false) {
     this.debug = debug;
     this.crawledData = new Map();
+    this.browser = null;
+    this.context = null;
     this.log('Initializing WebCrawler...');
-    
-    this.crawler = new PlaywrightCrawler({
-      headless: false,
-      maxRequestsPerCrawl: 100,
-      maxConcurrency: 1,
-      requestHandlerTimeoutSecs: 30,
-      maxRequestRetries: 1,
-      navigationTimeoutSecs: 30,
-      requestHandler: this.requestHandler.bind(this),
-      failedRequestHandler: this.failedRequestHandler.bind(this)
-    });
-    
-    this.log('WebCrawler initialized with configuration:', {
-      headless: false,
-      maxRequestsPerCrawl: 1,
-      maxConcurrency: 1,
-      requestHandlerTimeoutSecs: 30,
-      maxRequestRetries: 1,
-      navigationTimeoutSecs: 30
-    });
   }
 
   private log(message: string, data?: any): void {
@@ -54,58 +36,101 @@ export class WebCrawler {
     }
   }
 
-  private async requestHandler({ page, request }: { page: Page, request: Request }): Promise<void> {
-    this.log(`Starting to crawl URL: ${request.url}`);
+  private async setupBrowser(): Promise<void> {
+    if (!this.browser) {
+      this.log('Launching browser...');
+      this.browser = await chromium.launch({
+        headless: false
+      });
+      this.log('Browser launched');
+    }
+
+    if (!this.context) {
+      this.log('Creating browser context...');
+      this.context = await this.browser.newContext({
+        viewport: { width: 1280, height: 800 },
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36'
+      });
+      this.log('Browser context created');
+    }
+  }
+
+  private async closeBrowser(): Promise<void> {
+    if (this.context) {
+      this.log('Closing browser context...');
+      await this.context.close();
+      this.context = null;
+    }
+    
+    if (this.browser) {
+      this.log('Closing browser...');
+      await this.browser.close();
+      this.browser = null;
+    }
+  }
+
+  private async handleUrl(url: string, config: SiteConfig, params?: Record<string, string>): Promise<void> {
+    this.log(`Starting to crawl URL: ${url}`);
+    
+    if (!this.browser || !this.context) {
+      await this.setupBrowser();
+    }
+    
+    let page: Page | null = null;
+    
     try {
-      console.log('requestHandler 开始处理数据');
-      this.log('Waiting for page to load...');
-      await page.waitForLoadState('networkidle');
+      this.log('Creating new page...');
+      page = await this.context!.newPage();
+      
+      // Navigate to the URL with timeout
+      const timeout = config.timeout || 30000;
+      this.log(`Navigating to ${url} with timeout ${timeout}ms`);
+      
+      // 只使用一次网络等待，并设置更合理的等待条件
+      await page.goto(url, { 
+        waitUntil: 'domcontentloaded', // 改为等待 DOM 加载完成
+        timeout: timeout
+      });
+      
+      // 等待一小段时间确保动态内容加载
+      await page.waitForTimeout(2000);
+      
       this.log('Page loaded successfully');
       
-      this.log('Extracting data using rules:', request.userData.config.rules);
+      this.log('Extracting data using rules:', config.rules);
       const { rawData, processedData } = await this.extractData(page);
       this.log('Data extracted successfully:', { raw: rawData, processed: processedData });
-      // console.log('requestHandler 处理数据完成', processedData);
+      
       const crawlerData: CrawlerData = {
-        url: request.url,
+        url: url,
         data: processedData,
         rawData,
         timestamp: Date.now(),
-        params: request.userData.params,
+        params: params,
         succeeded: true
       };
 
-      this.log(`Saving data for site: ${request.userData.config.name}`);
-      this.saveData(request.userData.config.name, crawlerData);
+      this.log(`Saving data for site: ${config.name}`);
+      this.saveData(config.name, crawlerData);
       this.log('Data saved successfully');
+      
     } catch (error: any) {
-      this.log(`Error crawling ${request.url}:`, error);
+      this.log(`Error crawling ${url}:`, error);
       const errorData: CrawlerData = {
-        url: request.url,
+        url: url,
         data: {},
         timestamp: Date.now(),
         succeeded: false,
         errors: [error.message]
       };
       this.log('Saving error data');
-      this.saveData(request.userData.config.name, errorData);
+      this.saveData(config.name, errorData);
+    } finally {
+      if (page) {
+        this.log('Closing page...');
+        await page.close();
+      }
     }
-  }
-
-  private async failedRequestHandler({ request }: { request: Request }): Promise<void> {
-    this.log(`Request failed for URL: ${request.url}`, {
-      errorMessages: request.errorMessages
-    });
-    
-    const errorData: CrawlerData = {
-      url: request.url,
-      data: {},
-      timestamp: Date.now(),
-      succeeded: false,
-      errors: request.errorMessages
-    };
-    this.saveData(request.userData.config.name, errorData);
-    this.log('Failed request data saved');
   }
 
   private saveData(siteName: string, data: CrawlerData): void {
@@ -127,7 +152,6 @@ export class WebCrawler {
 
     for (const [key, rule] of Object.entries(rules || [])) {
       this.log(`Extracting data for rule: ${key}`, rule);
-      console.log('rule',key, rule);
       try {
         const elements = await page.$$(rule.selector);
         this.log(`Found ${elements.length} elements for selector: ${rule.selector}`);
@@ -152,18 +176,15 @@ export class WebCrawler {
         rawData[key] = values.length === 1 ? values[0] : values;
         this.log(`Extracted raw value for ${key}:`, rawData[key]);
 
-        console.log('rawData[key]', rule, rule.handler);
         // 应用数据处理器
         if (rule.handler) {
           try {
             // 对每个元素应用处理器
             const results = await Promise.all(
               elements.map(async (element) => {
-                console.log('element', element);
                 return rule.handler!(processedData, rawData[key], element);
               })
             );
-            // console.log('results----:', results);
 
             processedData[key] = results.length === 1 ? results[0] : results;
             this.log(`Processed value for ${key}:`, processedData[key]);
@@ -174,6 +195,7 @@ export class WebCrawler {
         } else {
           processedData[key] = rawData[key];
         }
+
       } catch (error) {
         this.log(`Error extracting data for rule ${key}:`, error);
         rawData[key] = null;
@@ -181,27 +203,32 @@ export class WebCrawler {
       }
     }
 
-    return { rawData, processedData };
+    return { rawData: {}, processedData };
   }
 
   async crawl(config: SiteConfig & { params?: Record<string, string> }): Promise<void> {
     this.log('Starting crawl with config:', config);
-    await this.crawler.run([{
-      url: config.url,
-      userData: {
-        config,
-        params: config.params
-      }
-    }]);
+    
+    try {
+      await this.setupBrowser();
+      await this.handleUrl(config.url, config, config.params);
+    } finally {
+      // Only close the browser when we're done with all URLs
+      await this.closeBrowser();
+    }
+    
     this.log('Crawl completed');
   }
 
   // 数据读取接口
-  getData(siteName?: string): Record<string, CrawlerData[]> | CrawlerData[] | null {
+  getData(siteName?: string): | CrawlerData[] | null {
     this.log(`Getting data${siteName ? ` for site: ${siteName}` : ' for all sites'}`);
     const data = siteName 
       ? this.crawledData.get(siteName) || null
-      : Object.fromEntries(this.crawledData);
+      : Array.from(this.crawledData.entries()).reduce((acc, [key, value]) => {
+          acc.push(...value);
+          return acc;
+        }, [] as CrawlerData[])
     this.log('Retrieved data:', data);
     return data;
   }

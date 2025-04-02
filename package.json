@@ -1,7 +1,7 @@
 {
   "name": "mcp-web-crawler",
   "version": "1.0.0",
-  "description": "A web crawler service using PlaywrightCrawler with MCP interface",
+  "description": "A web crawler service using Playwright",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -12,12 +12,13 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@crawlee/playwright": "^3.7.0",
-    "playwright": "^1.41.2",
-    "typescript": "^5.3.3",
-    "ts-node": "^10.9.2",
+    "@modelcontextprotocol/sdk": "^1.8.0",
+    "@types/cheerio": "^0.22.35",
     "@types/node": "^20.11.19",
     "cheerio": "^1.0.0-rc.12",
-    "@types/cheerio": "^0.22.35"
+    "dotenv": "^16.4.7",
+    "playwright": "^1.41.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
   }
 }
