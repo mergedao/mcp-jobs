@@ -9,9 +9,11 @@ export interface SearchParams {
   keyword?: string;
   city?: string;
   page?: number;
+  salary?: string;
+  workYear?: string;
 }
 
-async function crawlByUrl(url: string): Promise<CrawlerData[] | null> {
+async function crawlByUrl(url: string, params: SearchParams): Promise<CrawlerData[] | null> {
   const crawlerService = new CrawlerService();
   const storageService = new StorageService();
 
@@ -29,10 +31,11 @@ async function crawlByUrl(url: string): Promise<CrawlerData[] | null> {
 
   try {
     console.log(`Starting crawl for URL: ${url}`);
+    const { keyword, city, page, salary, workYear } = params;
     // 创建一个新的配置，使用匹配到的规则但替换URL
     const customConfig = {
       ...matchedConfig,
-      url: url
+      url: matchedConfig.urlBuilder(url, params, matchedConfig?.config || {})
     };
     
     const result = await crawlerService.startCrawling(customConfig);
@@ -56,10 +59,16 @@ async function crawlByUrl(url: string): Promise<CrawlerData[] | null> {
 }
 
 export async function searchJobList(params: SearchParams = {}) {
-  const { keyword, city, page = 1 } = params;
+  const { keyword, city, page = 1, salary, workYear } = params;
   const result = [];
   for (const config of jobSearchUrls) {
-    const dataset = await crawlByUrl(config.url + keyword);
+    const dataset = await crawlByUrl(config.url, {
+      keyword: keyword + ' ' + city,
+      city,
+      page,
+      salary,
+      workYear
+    });
     if (dataset) {
       const jobItems = dataset.filter(item => item.data?.jobInfo);
       result.push(...jobItems);
@@ -69,13 +78,13 @@ export async function searchJobList(params: SearchParams = {}) {
 }
 
 async function main() {
-  // const result = await searchJobList();
-  const result = await crawlJobDetail('https://m.zhipin.com/job_detail/7d5caa6504e27b8b1HF839S1FVtU.html');
+  const result = await searchJobList({ keyword: '前端开发', city: '北京', page: 1, salary: '10-15万', workYear: '1-3年' });
+  // const result = await crawlJobDetail('https://m.zhipin.com/job_detail/7d5caa6504e27b8b1HF839S1FVtU.html');
   console.log(result);
 }
 
 export async function crawlJobDetail(url: string) {
-  const result = await crawlByUrl(url);
+  const result = await crawlByUrl(url, {});
   console.log(result);
   if (!result || result.length === 0) {
     return null;

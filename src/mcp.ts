@@ -28,6 +28,14 @@ const SEARCH_JOB_TOOL: Tool = {
         type: 'string',
         description: '城市名称',
       },
+      salary: {
+        type: 'string',
+        description: '薪资范围',
+      },
+      workYear: {
+        type: 'string',
+        description: '工作经验',
+      },
       page: {
         type: 'number',
         description: '页码',
@@ -106,8 +114,8 @@ const server = new Server(
 );
 
 // 获取环境变量中的用户名和密码
-const username = process.env.USERNAME;
-const password = process.env.PASSWORD;
+// const username = process.env.USERNAME;
+// const password = process.env.PASSWORD;
 
 // 验证用户名和密码是否已配置
 // if (!username || !password) {
@@ -142,14 +150,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error('搜索职位的参数格式无效，请检查输入参数');
         }
         
-        const { keyword, city, page } = args;
+        const { keyword, city, page, salary, workYear } = args;
         
         server.sendLoggingMessage({
           level: 'info',
           data: `开始搜索职位，关键词: ${keyword}, 城市: ${city || '全国'}, 页码: ${page || 1}`,
         });
         
-        const results = await searchJobList({ keyword, city, page });
+        const results = await searchJobList({ keyword, city, page, salary, workYear });
         
         server.sendLoggingMessage({
           level: 'info',

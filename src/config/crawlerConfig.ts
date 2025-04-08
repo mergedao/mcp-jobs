@@ -11,8 +11,18 @@ export interface SiteConfig {
   url: string;           // 网站URL
   name: string;          // 网站名称
   urlPattern?: string;   // URL 匹配模式（支持正则表达式）
+  urlBuilder: (url: string, params: Record<string, any>, paramsConfig: Record<string, any>) => string; // URL 构建器
   rules: {              // 数据提取规则
     [key: string]: CrawlerRule;
+  };
+  config?: {
+    [key: string]: {
+      name: string;
+      description: string;
+      type: string;
+      default: string;
+      rule?: Record<string, string>;
+    };
   };
   maxRequestsPerCrawl?: number;
   maxConcurrency?: number;
@@ -20,113 +30,47 @@ export interface SiteConfig {
 }
 
 export const crawlerConfigs: SiteConfig[] = [
-  // {
-  //   url: 'https://m.liepin.com/zhaopin/?dqs=000&keyword=',
-  //   name: 'liepin',
-  //   urlPattern: '^https://m\.liepin.com\.com/(?:products|items)/(?<id>\\d+)$',
-  //   rules: {
-  //     jobInfo: {
-  //       selector: '.recommend-job-list .job-card',
-  //       type: 'html',
-  //       handler: async (currentData, value, element) => {
-  //         try {
-  //           console.log('element，当前元素内容：');
-  //           // 使用 $eval 获取子元素内容
-  //           const title = await element.$eval('h3 span', el => el.textContent?.trim() || '');
-  //           const salary = await element.$eval('h3 small', el => el.textContent?.trim() || '');
-  //           const company = await element.$eval('.job-card-company', el => el.textContent?.trim() || '');
-            
-  //           // 使用 $$eval 获取多个子元素
-  //           const tags = await element.$$eval('.job-card-labels label', elements => 
-  //             elements.map(el => el.textContent?.trim() || '')
-  //           );
-
-  //           // 职位详情
-  //           const jobDetail = await element.getAttribute('href');
-
-  //           console.log('Extracted job info:', { title, salary, company, tags, jobDetail });
-
-  //           return {
-  //             title,
-  //             salary,
-  //             company,
-  //             tags,
-  //             jobDetail
-  //           };
-  //         } catch (error) {
-  //           console.error('Error extracting job info:', error);
-  //           // 如果出错，尝试使用另一种方式获取
-  //           const content = await element.textContent();
-  //           // console.log('Raw element content:', content);
-  //           return { content };
-  //         }
-  //       }
-  //     },
-  //     // hotJobs: {
-  //     //   selector: '.hot-job-list',
-  //     //   type: 'html',
-  //     //   handler: async (currentData, value, element) => {
-  //     //     try {
-  //     //       // 使用 $eval 获取标题
-  //     //       const title = await element.$eval('.section-title', el => el.textContent?.trim() || '');
-            
-  //     //       // 使用 $$eval 获取所有工作项
-  //     //       const jobs = await element.$$eval('.job-item', items =>
-  //     //         items.map(item => ({
-  //     //           name: item.querySelector('.job-name')?.textContent?.trim() || '',
-  //     //           company: item.querySelector('.company-name')?.textContent?.trim() || '',
-  //     //           salary: item.querySelector('.salary')?.textContent?.trim() || ''
-  //     //         }))
-  //     //       );
-
-  //     //       console.log('Extracted hot jobs:', { title, jobCount: jobs.length });
-
-  //     //       return {
-  //     //         title,
-  //     //         jobs
-  //     //       };
-  //     //     } catch (error) {
-  //     //       console.error('Error extracting hot jobs:', error);
-  //     //       return null;
-  //     //     }
-  //     //   }
-  //     // },
-  //     // recommendCompanies: {
-  //     //   selector: '.recommend-company-list',
-  //     //   type: 'html',
-  //     //   handler: async (currentData, value, element) => {
-  //     //     try {
-  //     //       // 使用 $$eval 获取所有公司信息
-  //     //       const companies = await element.$$eval('.company-item', items =>
-  //     //         items.map(item => ({
-  //     //           name: item.querySelector('.company-name')?.textContent?.trim() || '',
-  //     //           industry: item.querySelector('.industry')?.textContent?.trim() || '',
-  //     //           scale: item.querySelector('.scale')?.textContent?.trim() || '',
-  //     //           jobs: Array.from(item.querySelectorAll('.job-item')).map(job => ({
-  //     //             title: job.querySelector('.job-title')?.textContent?.trim() || '',
-  //     //             salary: job.querySelector('.salary')?.textContent?.trim() || ''
-  //     //           }))
-  //     //         }))
-  //     //       );
-
-  //     //       console.log('Extracted companies:', { companyCount: companies.length });
-
-  //     //       return companies;
-  //     //     } catch (error) {
-  //     //       console.error('Error extracting companies:', error);
-  //     //       return [];
-  //     //     }
-  //     //   }
-  //     // }
-  //   },
-  //   maxRequestsPerCrawl: 1,
-  //   maxConcurrency: 1,
-  //   timeout: 30000
-  // },
   {
-    url: 'https://www.liepin.com/zhaopin/?city=000&dq=000&key=',
+    url: 'https://www.liepin.com/zhaopin/',
     name: 'liepin',
     urlPattern: '^https://www\.liepin\.com/zhaopin/.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      const { keyword, salary, workYear, page } = params;
+      const { salaryCode, workYearCode } = paramsConfig;
+      return url + `?city=000&dq=000&key=${keyword}&currentPage=${page}&salaryCode=${salaryCode.rule[salary] || ''}&workYearCode=${workYearCode.rule[workYear] || ''}`;
+    },
+    config: {
+      salaryCode: {
+        name: 'salaryCode',
+        description: '薪资编码',
+        type: 'string',
+        default: '',
+        rule: {
+          '10万以下': '1',
+          '10-15万': '2',
+          '16-20万': '3',
+          '21-30万': '4',
+          '31-50万': '5',
+          '51-100万': '6',
+          '100万以上': '7'
+        }
+      },
+      workYearCode: {
+        name: 'workYearCode',
+        description: '工作经验',
+        type: 'string',
+        default: '',
+        rule: {
+          '应届生': '1',
+          '实习生': '2',
+          '1年以下': '0$1',
+          '1-3年': '1$3',
+          '3-5年': '3$5',
+          '5-10年': '5$10',
+          '10年以上': '10$999'
+        }
+      }
+    },
     rules: {
       jobInfo: {
         selector: '.job-card-pc-container',
@@ -234,9 +178,46 @@ export const crawlerConfigs: SiteConfig[] = [
     timeout: 30000
   },
   {
-    url: 'https://m.zhipin.com/job_detail/?query=',
+    url: 'https://m.zhipin.com/c100010000',
     name: 'zhipin',
-    urlPattern: '^https://m\.zhipin\.com/job_detail/[^\.]+$',
+    urlPattern: '^https://m\.zhipin\.com/c100010000/[^\.]+$',
+    urlBuilder: (url, params, paramsConfig) => {
+      const { salary, workYear, keyword, page } = params;
+      const { salaryCode, workYearCode } = paramsConfig;
+      return url + `/${workYearCode.rule[workYear] || ''}?ka=${salaryCode.rule[salary] || ''}&page=${page}&query=${keyword}`;
+    },
+    config: {
+      salaryCode: {
+        name: 'ka',
+        description: '薪资编码',
+        type: 'string',
+        default: '',
+        rule: {
+          '10万以下': 'sel-salary-1',
+          '10-15万': 'sel-salary-2',
+          '16-20万': 'sel-salary-3',
+          '21-30万': 'sel-salary-4',
+          '31-50万': 'sel-salary-5',
+          '51-100万': 'sel-salary-6',
+          '100万以上': 'sel-salary-7'
+        }
+      },
+      workYearCode: {
+        name: 'exp',
+        description: '工作经验',
+        type: 'string',
+        default: '',
+        rule: {
+          '应届生': 'e_102',
+          '实习生': 'e_108',
+          '1年以下': 'e_103',
+          '1-3年': 'e_104',
+          '3-5年': 'e_105',
+          '5-10年': 'e_106',
+          '10年以上': 'e_107'
+        }
+      }
+    },
     rules: {
       jobInfo: {
         selector: 'li.item',
@@ -266,6 +247,9 @@ export const crawlerConfigs: SiteConfig[] = [
     url: '',
     name: 'zhipin-detail',
     urlPattern: '^https://m\.zhipin\.com/job_detail/.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      return url;
+    },
     rules: {
       job: {
         selector: '.job-detail',
@@ -282,6 +266,9 @@ export const crawlerConfigs: SiteConfig[] = [
     url: '',
     name: 'liepin-detail',
     urlPattern: '^https://www.liepin.com/job/.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      return url;
+    },
     rules: {
       job: {
         selector: 'body',

@@ -1,10 +1,10 @@
 export const jobSearchUrls = [
   {
-    url: 'https://m.zhipin.com/job_detail/?query=',
+    url: 'https://m.zhipin.com/c100010000',
     name: 'zhipin',
   },
   {
-    url: 'https://www.liepin.com/zhaopin/?city=000&dq=000&key=',
+    url: 'https://www.liepin.com/zhaopin/',
     name: 'liepin',
   },
   {
