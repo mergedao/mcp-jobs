@@ -59,7 +59,7 @@ export async function searchJobList(params: SearchParams = {}) {
   const { keyword, city, page = 1 } = params;
   const result = [];
   for (const config of jobSearchUrls) {
-    const dataset = await crawlByUrl(config.url);
+    const dataset = await crawlByUrl(config.url + keyword);
     if (dataset) {
       const jobItems = dataset.filter(item => item.data?.jobInfo);
       result.push(...jobItems);
@@ -70,21 +70,21 @@ export async function searchJobList(params: SearchParams = {}) {
 
 async function main() {
   // const result = await searchJobList();
-  const result = await crawlJobDetail('https://www.liepin.com/job/1962593655.shtml');
+  const result = await crawlJobDetail('https://m.zhipin.com/job_detail/7d5caa6504e27b8b1HF839S1FVtU.html');
   console.log(result);
 }
 
 export async function crawlJobDetail(url: string) {
   const result = await crawlByUrl(url);
+  console.log(result);
   if (!result || result.length === 0) {
     return null;
   }
-  return result[0]?.data?.jobInfo || null;
+  return result[0]?.data?.job || null;
 }
 
 // 导出函数供外部使用
-export { 
-  main, 
+export {
   crawlByUrl,
   jobSearchUrls
  };

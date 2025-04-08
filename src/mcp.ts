@@ -110,10 +110,10 @@ const username = process.env.USERNAME;
 const password = process.env.PASSWORD;
 
 // 验证用户名和密码是否已配置
-if (!username || !password) {
-  console.error('错误: 请在环境变量中配置用户名(USERNAME)和密码(PASSWORD)');
-  process.exit(1);
-}
+// if (!username || !password) {
+//   console.error('错误: 请在环境变量中配置用户名(USERNAME)和密码(PASSWORD)');
+//   process.exit(1);
+// }
 
 // 注册工具列表处理器
 server.setRequestHandler(ListToolsRequestSchema, async () => ({

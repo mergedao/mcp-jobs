@@ -40,7 +40,7 @@ export class WebCrawler {
     if (!this.browser) {
       this.log('Launching browser...');
       this.browser = await chromium.launch({
-        headless: false
+        headless: true
       });
       this.log('Browser launched');
     }

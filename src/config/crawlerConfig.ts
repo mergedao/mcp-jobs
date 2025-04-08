@@ -278,7 +278,6 @@ export const crawlerConfigs: SiteConfig[] = [
       }
     }
   },
-
   {
     url: '',
     name: 'liepin-detail',

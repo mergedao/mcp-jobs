@@ -1,7 +1,7 @@
 {
-  "name": "mcp-web-crawler",
+  "name": "mcp-jobs",
   "version": "1.0.0",
-  "description": "A web crawler service using Playwright",
+  "description": "MCP jobs crawler",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

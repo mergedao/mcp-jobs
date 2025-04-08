@@ -5,7 +5,7 @@ export class StorageService {
   private dataDir: string;
 
   constructor() {
-    this.dataDir = path.join(process.cwd(), 'data');
+    this.dataDir = path.join(require('os').tmpdir(), 'data');
     this.ensureDataDirectory();
   }
 
