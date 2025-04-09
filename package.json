@@ -1,6 +1,6 @@
 {
   "name": "mcp-jobs",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "description": "A job search and crawling tool built with Model Context Protocol",
   "main": "dist/index.js",
   "scripts": {

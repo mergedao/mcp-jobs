@@ -30,7 +30,7 @@ async function crawlByUrl(url: string, params: SearchParams): Promise<CrawlerDat
   }
 
   try {
-    console.log(`Starting crawl for URL: ${url}`);
+    // console.log(`Starting crawl for URL: ${url}`);
     const { keyword, city, page, salary, workYear } = params;
     // 创建一个新的配置，使用匹配到的规则但替换URL
     const customConfig = {
@@ -50,10 +50,10 @@ async function crawlByUrl(url: string, params: SearchParams): Promise<CrawlerDat
       timestamp: Date.now()
     });
 
-    console.log(`Crawling completed for URL: ${url}`);
+    // console.log(`Crawling completed for URL: ${url}`);
     return dataset;
   } catch (error) {
-    console.error(`Error crawling URL ${url}:`, error);
+    // console.error(`Error crawling URL ${url}:`, error);
     return null;
   }
 }
@@ -80,12 +80,12 @@ export async function searchJobList(params: SearchParams = {}) {
 async function main() {
   const result = await searchJobList({ keyword: '前端开发', city: '北京', page: 1, salary: '10-15万', workYear: '1-3年' });
   // const result = await crawlJobDetail('https://m.zhipin.com/job_detail/7d5caa6504e27b8b1HF839S1FVtU.html');
-  console.log(result);
+  // console.log(result);
 }
 
 export async function crawlJobDetail(url: string) {
   const result = await crawlByUrl(url, {});
-  console.log(result);
+  // console.log(result);
   if (!result || result.length === 0) {
     return null;
   }

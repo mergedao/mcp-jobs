@@ -29,10 +29,10 @@ export class WebCrawler {
   private log(message: string, data?: any): void {
     if (this.debug) {
       const timestamp = new Date().toISOString();
-      console.log(`[${timestamp}] ${message}`);
-      if (data) {
-        console.log(JSON.stringify(data, null, 2));
-      }
+      // console.log(`[${timestamp}] ${message}`);
+      // if (data) {
+      //   console.log(JSON.stringify(data, null, 2));
+      // }
     }
   }
 

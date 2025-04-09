@@ -77,7 +77,7 @@ export const crawlerConfigs: SiteConfig[] = [
         type: 'html',
         handler: async (currentData, value, element) => {
           try {
-            console.log('element，当前元素内容：');
+            // console.log('element，当前元素内容：');
             // 使用 $eval 获取子元素内容
             const title = await element.$eval('.job-title-box > .ellipsis-1', el => el.textContent?.trim() || '');
             const salary = await element.$eval('.job-salary', el => el.textContent?.trim() || '');
@@ -97,7 +97,7 @@ export const crawlerConfigs: SiteConfig[] = [
             // 职位详情
             const jobDetail = await element.$eval('a', el => el.getAttribute('href') || '');
 
-            console.log('Extracted job info:', { title, salary, company, address, tags, jobDetail });
+            // console.log('Extracted job info:', { title, salary, company, address, tags, jobDetail });
 
             return {
               title,
@@ -223,7 +223,7 @@ export const crawlerConfigs: SiteConfig[] = [
         selector: 'li.item',
         type: 'html',
         handler: async (currentData, value, element) => {
-          console.log('element，begin：');
+          // console.log('element，begin：');
           const title = await element.$eval('.title-text', el => el.textContent?.trim() || '');
           const salary = await element.$eval('.salary', el => el.textContent?.trim() || '');
           const company = await element.$eval('.company', el => el.textContent?.trim() || '');
@@ -237,7 +237,7 @@ export const crawlerConfigs: SiteConfig[] = [
           const tags = await element.$$eval('.labels span', elements => 
             elements.map(el => el.textContent?.trim() || '')
           );
-          console.log('element，当前元素内容：', { title, salary, company, address, jobDetail, tags });
+          // console.log('element，当前元素内容：', { title, salary, company, address, jobDetail, tags });
           return { title, salary, company, address, jobDetail, tags };
         }
       }
