@@ -1,14 +1,14 @@
 {
-  "name": "mcp-jobs",
-  "version": "1.3.0",
-  "description": "A job search and crawling tool built with Model Context Protocol",
+  "name": "mcp-wechaty",
+  "version": "1.0.0",
+  "description": "A wechaty bot built with Model Context Protocol",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts"
   },
-  "keywords": ["jobs", "crawler", "search", "mcp", "model-context-protocol"],
+  "keywords": ["wechaty", "mcp", "model-context-protocol", "feishu"],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -19,7 +19,11 @@
     "dotenv": "^16.4.7",
     "playwright": "^1.41.2",
     "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "wechaty": "^1.20.2",
+    "wechaty-puppet-wechat": "^1.18.4",
+    "@larksuite/oapi-sdk-nodejs": "^3.0.0",
+    "qrcode-terminal": "^0.12.0"
   },
   "files": [
     "dist",

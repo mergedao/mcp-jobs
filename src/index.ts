@@ -3,6 +3,115 @@ import { StorageService } from './services/storageService';
 import { crawlerConfigs } from './config/crawlerConfig';
 import { jobSearchUrls } from './config/urlConfig';
 import { CrawlerData } from './crawler/webCrawler';
+import { Wechaty, Contact } from 'wechaty';
+import { Client } from '@larksuite/oapi-sdk-nodejs';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import * as dotenv from 'dotenv';
+import * as qrcode from 'qrcode-terminal';
+
+dotenv.config();
+
+// Initialize WeChat bot
+const wechatBot = new Wechaty({
+  name: 'mcp-wechat-bot',
+  puppet: 'wechaty-puppet-wechat',
+});
+
+// Initialize Feishu client
+const feishuClient = new Client({
+  appId: process.env.FEISHU_APP_ID || '',
+  appSecret: process.env.FEISHU_APP_SECRET || '',
+});
+
+// Initialize MCP server
+const mcpServer = new Server({
+  name: 'mcp-wechaty-bot',
+  version: '1.0.0',
+  transport: new StdioServerTransport(),
+  tools: {
+    getContacts: async (platform: 'wechat' | 'feishu') => {
+      if (platform === 'wechat') {
+        const contacts = await wechatBot.Contact.findAll();
+        return contacts.map((contact: Contact) => ({
+          id: contact.id,
+          name: contact.name(),
+          type: contact.type(),
+        }));
+      } else {
+        const response = await feishuClient.contact.v3.users.list();
+        return response.data.items.map((user: any) => ({
+          id: user.user_id,
+          name: user.name,
+          type: 'user',
+        }));
+      }
+    },
+    getChatHistory: async (platform: 'wechat' | 'feishu', userId: string) => {
+      if (platform === 'wechat') {
+        const contact = await wechatBot.Contact.find({ id: userId });
+        if (contact) {
+          return [];
+        }
+        return [];
+      } else {
+        const response = await feishuClient.im.v1.messages.list({
+          params: {
+            user_id: userId,
+          },
+        });
+        return response.data.items;
+      }
+    },
+    sendMessage: async (platform: 'wechat' | 'feishu', userId: string, message: string) => {
+      if (platform === 'wechat') {
+        const contact = await wechatBot.Contact.find({ id: userId });
+        if (contact) {
+          await contact.say(message);
+        }
+      } else {
+        await feishuClient.im.v1.messages.create({
+          data: {
+            receive_id: userId,
+            msg_type: 'text',
+            content: JSON.stringify({ text: message }),
+          },
+        });
+      }
+    },
+  },
+});
+
+// WeChat event handlers
+wechatBot
+  .on('scan', (qrcode: string, status: number) => {
+    console.log(`Scan QR Code to login: ${status}\nhttps://wechaty.js.org/qrcode/${encodeURIComponent(qrcode)}`);
+    qrcode.generate(qrcode, { small: true });
+  })
+  .on('login', (user: Contact) => {
+    console.log(`User ${user} logged in`);
+  });
+
+// Start the service
+async function start() {
+  try {
+    await mcpServer.start();
+    console.log('MCP server started');
+    
+    await wechatBot.start();
+    console.log('WeChat bot started');
+    
+    await feishuClient.ready();
+    console.log('Feishu client initialized');
+    
+    console.log('Service is running...');
+  } catch (error) {
+    console.error('Failed to start service:', error);
+    process.exit(1);
+  }
+}
+
+start();
 
 // 定义搜索参数接口
 export interface SearchParams {
