@@ -55,7 +55,7 @@ export class WebCrawler {
     }
   }
 
-  private async closeBrowser(): Promise<void> {
+  public async close(): Promise<void> {
     if (this.context) {
       this.log('Closing browser context...');
       await this.context.close();
@@ -70,66 +70,110 @@ export class WebCrawler {
   }
 
   private async handleUrl(url: string, config: SiteConfig, params?: Record<string, string>): Promise<void> {
-    this.log(`Starting to crawl URL: ${url}`);
-    
     if (!this.browser || !this.context) {
+      this.log(`Browser or context not initialized for URL: ${url}. Setting up...`);
       await this.setupBrowser();
     }
-    
-    let page: Page | null = null;
-    
-    try {
-      this.log('Creating new page...');
-      page = await this.context!.newPage();
-      
-      // Navigate to the URL with timeout
-      const timeout = config.timeout || 30000;
-      this.log(`Navigating to ${url} with timeout ${timeout}ms`);
-      
-      // 只使用一次网络等待，并设置更合理的等待条件
-      await page.goto(url, { 
-        waitUntil: 'domcontentloaded', // 改为等待 DOM 加载完成
-        timeout: timeout
-      });
-      
-      // 等待一小段时间确保动态内容加载
-      await page.waitForTimeout(2000);
-      
-      this.log('Page loaded successfully');
-      
-      this.log('Extracting data using rules:', config.rules);
-      const { rawData, processedData } = await this.extractData(page);
-      this.log('Data extracted successfully:', { raw: rawData, processed: processedData });
-      
-      const crawlerData: CrawlerData = {
-        url: url,
-        data: processedData,
-        rawData,
-        timestamp: Date.now(),
-        params: params,
-        succeeded: true
-      };
 
-      this.log(`Saving data for site: ${config.name}`);
-      this.saveData(config.name, crawlerData);
-      this.log('Data saved successfully');
-      
-    } catch (error: any) {
-      this.log(`Error crawling ${url}:`, error);
-      const errorData: CrawlerData = {
-        url: url,
-        data: {},
-        timestamp: Date.now(),
-        succeeded: false,
-        errors: [error.message]
-      };
-      this.log('Saving error data');
-      this.saveData(config.name, errorData);
-    } finally {
-      if (page) {
-        this.log('Closing page...');
-        await page.close();
+    const maxRetries = config.maxRetries ?? 3;
+    const retryDelayMs = config.retryDelayMs ?? 1000;
+    let attempts = 0;
+    let page: Page | null = null; 
+
+    while (attempts < maxRetries) {
+      try {
+        this.log(`Attempt ${attempts + 1}/${maxRetries} for URL: ${url} (Config: ${config.name})`);
+
+        if (page && !page.isClosed()) {
+            this.log('Closing page from previous failed attempt...');
+            await page.close();
+        }
+        page = null; 
+
+        this.log('Creating new page...');
+        page = await this.context!.newPage();
+        
+        const timeout = config.timeout || 30000;
+        this.log(`Navigating to ${url} with timeout ${timeout}ms`);
+        
+        await page.goto(url, { 
+          waitUntil: 'domcontentloaded',
+          timeout: timeout
+        });
+        
+        // REMOVED: await page.waitForTimeout(2000);
+
+        if (config.readinessSelector) {
+          this.log(`Waiting for readiness selector "${config.readinessSelector}" to be visible...`);
+          try {
+            await page.waitForSelector(config.readinessSelector, { state: 'visible', timeout: timeout });
+            this.log('Readiness selector found and visible.');
+          } catch (e: any) {
+            this.log(`Timeout or error waiting for readiness selector "${config.readinessSelector}": ${e.message}. Proceeding with extraction attempt, but data might be incomplete.`);
+            // Optionally, this could be a point where we throw an error to trigger a retry if the selector is critical
+            // For now, we'll log and proceed.
+          }
+        }
+        
+        this.log('Page navigation and readiness checks complete.');
+        this.log(`Extracting data using rules for config: ${config.name}, URL: ${url}`);
+        const { rawData, processedData } = await this.extractData(page, config);
+        this.log('Data extracted successfully:', { raw: rawData, processed: processedData });
+        
+        const crawlerData: CrawlerData = {
+          url: url,
+          data: processedData,
+          rawData,
+          timestamp: Date.now(),
+          params: params,
+          succeeded: true
+        };
+
+        this.log(`Saving successful data for site: ${config.name}, URL: ${url}`);
+        this.saveData(config.name, crawlerData);
+        this.log('Data saved successfully');
+        break; 
+
+      } catch (error: any) {
+        attempts++;
+        this.log(`Error on attempt ${attempts}/${maxRetries} for URL ${url} (Config: ${config.name}): ${error.message}`, error);
+        
+        if (page && !page.isClosed()) {
+            try {
+                this.log(`Closing page after error on attempt ${attempts}/${maxRetries} for URL ${url}...`);
+                await page.close();
+            } catch (closeError) {
+                this.log(`Error closing page during error handling for URL ${url} (Config: ${config.name}):`, closeError);
+            }
+        }
+        page = null; 
+
+        if (attempts >= maxRetries) {
+          this.log(`All ${maxRetries} attempts failed for URL ${url} (Config: ${config.name}). Saving error data.`);
+          const errorData: CrawlerData = {
+            url: url,
+            data: {},
+            timestamp: Date.now(),
+            succeeded: false,
+            errors: [error.message], 
+            params: params
+          };
+          this.saveData(config.name, errorData);
+        } else {
+          this.log(`Waiting ${retryDelayMs}ms before next attempt for URL ${url} (Config: ${config.name})...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+        }
       }
+    } 
+
+    if (page && !page.isClosed()) {
+        this.log(`Final cleanup: Closing page for URL ${url} (Config: ${config.name}).`);
+        try {
+            await page.close();
+        } catch (finalCloseError) {
+            this.log(`Error during final page close for URL ${url} (Config: ${config.name}):`, finalCloseError);
+        }
+        page = null;
     }
   }
 
@@ -143,12 +187,10 @@ export class WebCrawler {
     this.log(`Current data count for ${siteName}: ${this.crawledData.get(siteName)?.length}`);
   }
 
-  private async extractData(page: Page): Promise<{ rawData: Record<string, any>, processedData: Record<string, any> }> {
+  private async extractData(page: Page, config: SiteConfig): Promise<{ rawData: Record<string, any>, processedData: Record<string, any> }> {
     const rawData: Record<string, any> = {};
     const processedData: Record<string, any> = {};
-    const rules = crawlerConfigs.find(config => {
-      return config.url === page.url() || (config.urlPattern && new RegExp(config.urlPattern).test(page.url()))
-    })?.rules;
+    const rules = config.rules;
 
     for (const [key, rule] of Object.entries(rules || [])) {
       this.log(`Extracting data for rule: ${key}`, rule);
@@ -203,7 +245,7 @@ export class WebCrawler {
       }
     }
 
-    return { rawData: {}, processedData };
+    return { rawData, processedData };
   }
 
   async crawl(config: SiteConfig & { params?: Record<string, string> }): Promise<void> {
@@ -213,8 +255,7 @@ export class WebCrawler {
       await this.setupBrowser();
       await this.handleUrl(config.url, config, config.params);
     } finally {
-      // Only close the browser when we're done with all URLs
-      await this.closeBrowser();
+      // Browser is no longer closed here to allow reuse by explicit call to close()
     }
     
     this.log('Crawl completed');

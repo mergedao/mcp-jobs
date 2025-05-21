@@ -52,6 +52,10 @@ async function crawlByUrl(url: string): Promise<CrawlerData[] | null> {
   } catch (error) {
     console.error(`Error crawling URL ${url}:`, error);
     return null;
+  } finally {
+    if (crawlerService) {
+      await crawlerService.close();
+    }
   }
 }
 

@@ -17,6 +17,9 @@ export interface SiteConfig {
   maxRequestsPerCrawl?: number;
   maxConcurrency?: number;
   timeout?: number;
+  maxRetries?: number; // Maximum number of retries for a failed crawl
+  retryDelayMs?: number; // Delay in milliseconds between retries
+  readinessSelector?: string; // Optional selector to wait for page readiness
 }
 
 export const crawlerConfigs: SiteConfig[] = [
