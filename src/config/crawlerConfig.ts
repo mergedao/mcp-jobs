@@ -7,6 +7,16 @@ export interface CrawlerRule {
   handler?: (currentData: Record<string, any>, extractedValue: any, element: ElementHandle<Element>) => Promise<any>;  // 数据处理器
 }
 
+export interface BrowserConfig {
+  headless?: boolean;    // 是否无头模式运行
+  timeout?: number;      // 页面超时时间
+  viewport?: {           // 视窗大小
+    width: number;
+    height: number;
+  };
+  userAgent?: string;    // 用户代理
+}
+
 export interface SiteConfig {
   url: string;           // 网站URL
   name: string;          // 网站名称
@@ -27,6 +37,7 @@ export interface SiteConfig {
   maxRequestsPerCrawl?: number;
   maxConcurrency?: number;
   timeout?: number;
+  browserConfig?: BrowserConfig;  // 浏览器配置
 }
 
 export const crawlerConfigs: SiteConfig[] = [
@@ -37,7 +48,13 @@ export const crawlerConfigs: SiteConfig[] = [
     urlBuilder: (url, params, paramsConfig) => {
       const { keyword, salary, workYear, page } = params;
       const { salaryCode, workYearCode } = paramsConfig;
-      return url + `?city=000&dq=000&key=${keyword}&currentPage=${page}&salaryCode=${salaryCode.rule[salary] || ''}&workYearCode=${workYearCode.rule[workYear] || ''}`;
+      return url + `?city=000&dq=000&key=${encodeURIComponent(keyword)}&currentPage=${page}&salaryCode=${salaryCode.rule[salary] || ''}&workYearCode=${workYearCode.rule[workYear] || ''}`;
+    },
+    // 示例：为猎聘网站配置特定的浏览器设置
+    browserConfig: {
+      // 可以在这里覆盖全局设置
+      // headless: false,  // 如果需要调试此特定网站，可以设置为 false
+      // timeout: 45000,   // 如果此网站需要更长的加载时间
     },
     config: {
       salaryCode: {
@@ -184,7 +201,7 @@ export const crawlerConfigs: SiteConfig[] = [
     urlBuilder: (url, params, paramsConfig) => {
       const { salary, workYear, keyword, page } = params;
       const { salaryCode, workYearCode } = paramsConfig;
-      return url + `/${workYearCode.rule[workYear] || ''}?ka=${salaryCode.rule[salary] || ''}&page=${page}&query=${keyword}`;
+      return url + `/${workYearCode.rule[workYear] || ''}?ka=${salaryCode.rule[salary] || ''}&page=${page}&query=${encodeURIComponent(keyword)}`;
     },
     config: {
       salaryCode: {

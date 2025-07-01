@@ -26,7 +26,7 @@ export class StorageService {
         JSON.stringify(data, null, 2),
         'utf-8'
       );
-      // console.log(`Data saved to ${filePath}`);
+      console.log(`Data saved to ${filePath}`);
     } catch (error) {
       console.error(`Error saving data to ${filePath}:`, error);
       throw error;

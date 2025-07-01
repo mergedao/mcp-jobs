@@ -37,8 +37,9 @@ async function crawlByUrl(url: string, params: SearchParams): Promise<CrawlerDat
       ...matchedConfig,
       url: matchedConfig.urlBuilder(url, params, matchedConfig?.config || {})
     };
-    
+    console.log(customConfig);
     const result = await crawlerService.startCrawling(customConfig);
+    console.log(result);
     
     // 获取爬取的数据
     const dataset = result || [];
@@ -60,20 +61,34 @@ async function crawlByUrl(url: string, params: SearchParams): Promise<CrawlerDat
 
 export async function searchJobList(params: SearchParams = {}) {
   const { keyword, city, page = 1, salary, workYear } = params;
-  const result = [];
+  const result : any[] = [];
+
+  console.log(`开始搜索职位 - 关键词: ${keyword}, 城市: ${city || '全国'}`);
+
   for (const config of jobSearchUrls) {
-    const dataset = await crawlByUrl(config.url, {
-      keyword: keyword + ' ' + city,
-      city,
-      page,
-      salary,
-      workYear
-    });
-    if (dataset) {
-      const jobItems = dataset.filter(item => item.data?.jobInfo);
-      result.push(...jobItems);
+    try {
+      const dataset = await crawlByUrl(config.url, {
+        keyword: keyword + ' ' + city,
+        city,
+        page,
+        salary,
+        workYear
+      });
+      if (dataset) {
+        const jobItems = dataset.filter(item => item.data?.jobInfo);
+        jobItems.forEach(item => {
+          result.push(...item.data.jobInfo)
+        });
+        console.log(`从 ${config.name} 获取到 ${result.length} 个职位`);
+      }
+    } catch (error) {
+      console.warn(`从 ${config.name} 获取职位失败:`, error instanceof Error ? error.message : String(error));
+      // Continue with other sources even if one fails
     }
   }
+
+  console.log(`搜索完成，总共找到 ${result.length} 个职位`);
+  console.log(result);
   return result;
 }
 

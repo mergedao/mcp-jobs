@@ -1,6 +1,7 @@
 import { chromium, firefox, webkit, Browser, BrowserContext, Page, ElementHandle } from 'playwright';
 import { SiteConfig, CrawlerRule } from '../config/crawlerConfig';
 import { crawlerConfigs } from '../config/crawlerConfig';
+import { crawlerConfigService } from '../services/crawlerConfigService';
 
 export interface CrawlerData {
   url: string;
@@ -17,13 +18,16 @@ export class WebCrawler {
   private debug: boolean;
   private browser: Browser | null;
   private context: BrowserContext | null;
+  private currentSiteConfig?: SiteConfig;
 
-  constructor(debug = false) {
-    this.debug = debug;
+  constructor(debug?: boolean) {
+    // 如果没有明确指定 debug，则从配置服务获取
+    this.debug = debug !== undefined ? debug : crawlerConfigService.isDebugMode();
     this.crawledData = new Map();
     this.browser = null;
     this.context = null;
     this.log('Initializing WebCrawler...');
+    this.log(crawlerConfigService.getConfigSummary());
   }
 
   private log(message: string, data?: any): void {
@@ -39,19 +43,27 @@ export class WebCrawler {
   private async setupBrowser(): Promise<void> {
     if (!this.browser) {
       this.log('Launching browser...');
-      this.browser = await chromium.launch({
-        headless: true,
-        args: ['--user-agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36"']
-      });
+
+      // 获取浏览器启动配置
+      const launchOptions = crawlerConfigService.getBrowserLaunchOptions(
+        this.currentSiteConfig?.browserConfig
+      );
+
+      this.log(`Browser launch options: headless=${launchOptions.headless}`);
+
+      this.browser = await chromium.launch(launchOptions);
       this.log('Browser launched');
     }
 
     if (!this.context) {
       this.log('Creating browser context...');
-      this.context = await this.browser.newContext({
-        viewport: { width: 1280, height: 800 },
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36'
-      });
+
+      // 获取浏览器上下文配置
+      const contextOptions = crawlerConfigService.getBrowserContextOptions(
+        this.currentSiteConfig?.browserConfig
+      );
+
+      this.context = await this.browser.newContext(contextOptions);
       this.log('Browser context created');
     }
   }
@@ -209,15 +221,20 @@ export class WebCrawler {
 
   async crawl(config: SiteConfig & { params?: Record<string, string> }): Promise<void> {
     this.log('Starting crawl with config:', config);
-    
+
+    // 设置当前站点配置，以便 setupBrowser 可以使用站点特定的浏览器配置
+    this.currentSiteConfig = config;
+
     try {
       await this.setupBrowser();
       await this.handleUrl(config.url, config, config.params);
     } finally {
       // Only close the browser when we're done with all URLs
       await this.closeBrowser();
+      // 清理当前站点配置
+      this.currentSiteConfig = undefined;
     }
-    
+
     this.log('Crawl completed');
   }
 

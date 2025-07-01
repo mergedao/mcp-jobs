@@ -61,18 +61,13 @@ const JOB_DETAIL_TOOL: Tool = {
   },
 };
 
-// API请求参数接口定义
+// 职位搜索参数接口定义
 type SearchJobParams = SearchParams & {
   keyword: string; // 使其成为必需参数
 };
 
 // 职位详情参数接口定义
 interface JobDetailParams {
-  url: string;
-}
-
-// API请求参数接口定义
-interface ApiInfoParams {
   url: string;
 }
 
@@ -102,7 +97,7 @@ function isValidJobDetailParams(args: unknown): args is JobDetailParams {
 // 初始化服务器实例
 const server = new Server(
   {
-    name: 'mcp-job',
+    name: 'mcp-jobs',
     version: '1.0.0',
   },
   {
@@ -113,15 +108,6 @@ const server = new Server(
   }
 );
 
-// 获取环境变量中的用户名和密码
-// const username = process.env.USERNAME;
-// const password = process.env.PASSWORD;
-
-// 验证用户名和密码是否已配置
-// if (!username || !password) {
-//   console.error('错误: 请在环境变量中配置用户名(USERNAME)和密码(PASSWORD)');
-//   process.exit(1);
-// }
 
 // 注册工具列表处理器
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -156,18 +142,50 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           level: 'info',
           data: `开始搜索职位，关键词: ${keyword}, 城市: ${city || '全国'}, 页码: ${page || 1}`,
         });
-        
-        const results = await searchJobList({ keyword, city, page, salary, workYear });
-        
-        server.sendLoggingMessage({
-          level: 'info',
-          data: `搜索完成，找到 ${results.length} 个职位`,
-        });
-        
-        return {
-          content: [{ type: 'text', text: JSON.stringify(results) }],
-          isError: false,
-        };
+
+        try {
+          const results = await searchJobList({ keyword, city, page, salary, workYear });
+
+          server.sendLoggingMessage({
+            level: 'info',
+            data: `搜索完成，找到 ${results.length} 个职位`,
+          });
+
+          // Add metadata about authentication status
+          const responseData = {
+            jobs: results,
+            metadata: {
+              totalResults: results.length,
+              searchParams: { keyword, city, page, salary, workYear },
+            }
+          };
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(responseData) }],
+            isError: false,
+          };
+        } catch (error) {
+          server.sendLoggingMessage({
+            level: 'error',
+            data: `搜索失败: ${error instanceof Error ? error.message : String(error)}`,
+          });
+
+          // Provide fallback response even when search fails
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                jobs: [],
+                metadata: {
+                  totalResults: 0,
+                  searchParams: { keyword, city, page, salary, workYear },
+                  error: '搜索服务暂时不可用，请稍后重试',
+                }
+              })
+            }],
+            isError: false,
+          };
+        }
       }
       
       case 'mcp_job_detail': {
@@ -181,22 +199,60 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           level: 'info',
           data: `开始获取职位详情，URL: ${url}`,
         });
-        
-        const detail = await crawlJobDetail(url);
-        
-        if (!detail) {
-          throw new Error('未找到职位详情');
+
+        try {
+          const detail = await crawlJobDetail(url);
+
+          if (!detail) {
+            const responseData = {
+              jobDetail: null,
+              metadata: {
+                url: url,
+                error: '未找到职位详情',
+              }
+            };
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(responseData) }],
+              isError: false,
+            };
+          }
+
+          server.sendLoggingMessage({
+            level: 'info',
+            data: `职位详情获取成功: ${detail.title || '未知职位'}`,
+          });
+
+          const responseData = {
+            jobDetail: detail,
+            metadata: {
+              url: url,
+            }
+          };
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(responseData) }],
+            isError: false,
+          };
+        } catch (error) {
+          server.sendLoggingMessage({
+            level: 'error',
+            data: `获取职位详情失败: ${error instanceof Error ? error.message : String(error)}`,
+          });
+
+          const responseData = {
+            jobDetail: null,
+            metadata: {
+              url: url,
+              error: '职位详情获取失败，请检查URL或稍后重试',
+            }
+          };
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(responseData) }],
+            isError: false,
+          };
         }
-        
-        server.sendLoggingMessage({
-          level: 'info',
-          data: `职位详情获取成功: ${detail.title}`,
-        });
-        
-        return {
-          content: [{ type: 'text', text: JSON.stringify(detail) }],
-          isError: false,
-        };
       }
     
       default:
