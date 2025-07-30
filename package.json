@@ -3,6 +3,9 @@
   "version": "1.4.0",
   "description": "A job search and crawling tool built with Model Context Protocol",
   "main": "dist/index.js",
+  "bin": {
+    "mcp-jobs": "./dist/index.js"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
