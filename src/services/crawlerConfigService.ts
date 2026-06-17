@@ -12,6 +12,12 @@ export interface CrawlerGlobalConfig {
   };
   userAgent: string;
   debug: boolean;
+  storageStatePath?: string;
+  persistStorageState: boolean;
+  maxRetries: number;
+  retryBaseDelayMs: number;
+  requestDelayMs: number;
+  postGotoWaitMs: number;
 }
 
 export class CrawlerConfigService {
@@ -41,6 +47,14 @@ export class CrawlerConfigService {
       
       // 从环境变量读取调试模式配置
       debug: this.parseBoolean(process.env.CRAWLER_DEBUG, false),
+
+      storageStatePath: process.env.CRAWLER_STORAGE_STATE_PATH || undefined,
+      persistStorageState: this.parseBoolean(process.env.CRAWLER_PERSIST_STORAGE_STATE, true),
+
+      maxRetries: this.parseNumber(process.env.CRAWLER_MAX_RETRIES, 2),
+      retryBaseDelayMs: this.parseNumber(process.env.CRAWLER_RETRY_BASE_DELAY_MS, 800),
+      requestDelayMs: this.parseNumber(process.env.CRAWLER_REQUEST_DELAY_MS, 0),
+      postGotoWaitMs: this.parseNumber(process.env.CRAWLER_POST_GOTO_WAIT_MS, 1500),
     };
   }
 
@@ -127,6 +141,30 @@ export class CrawlerConfigService {
    */
   public isDebugMode(): boolean {
     return this.config.debug;
+  }
+
+  public getStorageStatePath(): string | undefined {
+    return this.config.storageStatePath;
+  }
+
+  public shouldPersistStorageState(): boolean {
+    return !!this.config.storageStatePath && this.config.persistStorageState;
+  }
+
+  public getMaxRetries(): number {
+    return Math.max(0, this.config.maxRetries);
+  }
+
+  public getRetryBaseDelayMs(): number {
+    return Math.max(0, this.config.retryBaseDelayMs);
+  }
+
+  public getRequestDelayMs(): number {
+    return Math.max(0, this.config.requestDelayMs);
+  }
+
+  public getPostGotoWaitMs(): number {
+    return Math.max(0, this.config.postGotoWaitMs);
   }
 
   /**

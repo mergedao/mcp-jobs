@@ -1,6 +1,8 @@
-import { chromium, firefox, webkit, Browser, BrowserContext, Page, ElementHandle } from 'playwright';
+import { chromium, Browser, BrowserContext, Page, ElementHandle } from 'playwright';
+import { existsSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { SiteConfig, CrawlerRule } from '../config/crawlerConfig';
-import { crawlerConfigs } from '../config/crawlerConfig';
 import { crawlerConfigService } from '../services/crawlerConfigService';
 
 export interface CrawlerData {
@@ -63,7 +65,13 @@ export class WebCrawler {
         this.currentSiteConfig?.browserConfig
       );
 
-      this.context = await this.browser.newContext(contextOptions);
+      const storageStatePath = crawlerConfigService.getStorageStatePath();
+      const contextOptionsWithState: any = { ...contextOptions };
+      if (storageStatePath && existsSync(storageStatePath)) {
+        contextOptionsWithState.storageState = storageStatePath;
+      }
+
+      this.context = await this.browser.newContext(contextOptionsWithState);
       this.log('Browser context created');
     }
   }
@@ -71,6 +79,11 @@ export class WebCrawler {
   private async closeBrowser(): Promise<void> {
     if (this.context) {
       this.log('Closing browser context...');
+      if (crawlerConfigService.shouldPersistStorageState()) {
+        const storageStatePath = crawlerConfigService.getStorageStatePath()!;
+        await mkdir(dirname(storageStatePath), { recursive: true });
+        await this.context.storageState({ path: storageStatePath });
+      }
       await this.context.close();
       this.context = null;
     }
@@ -90,60 +103,82 @@ export class WebCrawler {
     }
     
     let page: Page | null = null;
+    let lastError: any = null;
+    const maxRetries = crawlerConfigService.getMaxRetries();
+    const retryBaseDelayMs = crawlerConfigService.getRetryBaseDelayMs();
+    const requestDelayMs = crawlerConfigService.getRequestDelayMs();
+    const postGotoWaitMs = crawlerConfigService.getPostGotoWaitMs();
     
-    try {
-      this.log('Creating new page...');
-      page = await this.context!.newPage();
-      
-      // Navigate to the URL with timeout
-      const timeout = config.timeout || 30000;
-      this.log(`Navigating to ${url} with timeout ${timeout}ms`);
-      
-      // 只使用一次网络等待，并设置更合理的等待条件
-      await page.goto(url, { 
-        waitUntil: 'domcontentloaded', // 改为等待 DOM 加载完成
-        timeout: timeout
-      });
-      
-      // 等待一小段时间确保动态内容加载
-      await page.waitForTimeout(2000);
-      
-      this.log('Page loaded successfully');
-      
-      this.log('Extracting data using rules:', config.rules);
-      const { rawData, processedData } = await this.extractData(page);
-      this.log('Data extracted successfully:', { raw: rawData, processed: processedData });
-      
-      const crawlerData: CrawlerData = {
-        url: url,
-        data: processedData,
-        rawData,
-        timestamp: Date.now(),
-        params: params,
-        succeeded: true
-      };
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        this.log('Creating new page...');
+        page = await this.context!.newPage();
 
-      this.log(`Saving data for site: ${config.name}`);
-      this.saveData(config.name, crawlerData);
-      this.log('Data saved successfully');
-      
-    } catch (error: any) {
-      this.log(`Error crawling ${url}:`, error);
-      const errorData: CrawlerData = {
-        url: url,
-        data: {},
-        timestamp: Date.now(),
-        succeeded: false,
-        errors: [error.message]
-      };
-      this.log('Saving error data');
-      this.saveData(config.name, errorData);
-    } finally {
-      if (page) {
-        this.log('Closing page...');
-        await page.close();
+        if (requestDelayMs > 0) {
+          await page.waitForTimeout(requestDelayMs);
+        }
+
+        const timeout = config.timeout || 30000;
+        this.log(`Navigating to ${url} with timeout ${timeout}ms`);
+
+        await page.goto(url, {
+          waitUntil: 'domcontentloaded',
+          timeout: timeout
+        });
+
+        if (postGotoWaitMs > 0) {
+          await page.waitForTimeout(postGotoWaitMs);
+        }
+
+        this.log('Page loaded successfully');
+
+        this.log('Extracting data using rules:', config.rules);
+        const { rawData, processedData } = await this.extractData(page, config.rules);
+        this.log('Data extracted successfully:', { raw: rawData, processed: processedData });
+
+        const crawlerData: CrawlerData = {
+          url: url,
+          data: processedData,
+          rawData,
+          timestamp: Date.now(),
+          params: params,
+          succeeded: true
+        };
+
+        this.log(`Saving data for site: ${config.name}`);
+        this.saveData(config.name, crawlerData);
+        this.log('Data saved successfully');
+        return;
+      } catch (error: any) {
+        lastError = error;
+        if (page) {
+          await page.close();
+          page = null;
+        }
+        if (attempt < maxRetries) {
+          const delay = retryBaseDelayMs * Math.pow(2, attempt);
+          await new Promise<void>(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+      } finally {
+        if (page) {
+          this.log('Closing page...');
+          await page.close();
+          page = null;
+        }
       }
     }
+
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
+    const errorData: CrawlerData = {
+      url: url,
+      data: {},
+      timestamp: Date.now(),
+      succeeded: false,
+      errors: [message]
+    };
+    this.log('Saving error data');
+    this.saveData(config.name, errorData);
   }
 
   private saveData(siteName: string, data: CrawlerData): void {
@@ -156,14 +191,11 @@ export class WebCrawler {
     this.log(`Current data count for ${siteName}: ${this.crawledData.get(siteName)?.length}`);
   }
 
-  private async extractData(page: Page): Promise<{ rawData: Record<string, any>, processedData: Record<string, any> }> {
+  private async extractData(page: Page, rules?: Record<string, CrawlerRule>): Promise<{ rawData: Record<string, any>, processedData: Record<string, any> }> {
     const rawData: Record<string, any> = {};
     const processedData: Record<string, any> = {};
-    const rules = crawlerConfigs.find(config => {
-      return config.url === page.url() || (config.urlPattern && new RegExp(config.urlPattern).test(page.url()))
-    })?.rules;
 
-    for (const [key, rule] of Object.entries(rules || [])) {
+    for (const [key, rule] of Object.entries(rules || {})) {
       this.log(`Extracting data for rule: ${key}`, rule);
       try {
         const elements = await page.$$(rule.selector);
@@ -199,7 +231,8 @@ export class WebCrawler {
               })
             );
 
-            processedData[key] = results.length === 1 ? results[0] : results;
+            const filteredResults = results.filter(r => r !== null && r !== undefined);
+            processedData[key] = results.length === 1 ? (filteredResults[0] ?? null) : filteredResults;
             this.log(`Processed value for ${key}:`, processedData[key]);
           } catch (error) {
             this.log(`Error in handler for ${key}:`, error);
@@ -216,7 +249,7 @@ export class WebCrawler {
       }
     }
 
-    return { rawData: {}, processedData };
+    return { rawData, processedData };
   }
 
   async crawl(config: SiteConfig & { params?: Record<string, string> }): Promise<void> {
@@ -239,7 +272,7 @@ export class WebCrawler {
   }
 
   // 数据读取接口
-  getData(siteName?: string): | CrawlerData[] | null {
+  getData(siteName?: string): CrawlerData[] | null {
     this.log(`Getting data${siteName ? ` for site: ${siteName}` : ' for all sites'}`);
     const data = siteName 
       ? this.crawledData.get(siteName) || null

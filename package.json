@@ -9,18 +9,21 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "test": "pnpm run build && node --test dist/tests/*.test.js"
   },
   "keywords": ["jobs", "crawler", "search", "mcp", "model-context-protocol"],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.8.0",
-    "@types/cheerio": "^0.22.35",
-    "@types/node": "^20.11.19",
     "cheerio": "^1.0.0-rc.12",
     "dotenv": "^16.4.7",
-    "playwright": "^1.41.2",
+    "playwright": "^1.51.1"
+  },
+  "devDependencies": {
+    "@types/cheerio": "^0.22.35",
+    "@types/node": "^20.11.19",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
   },
@@ -29,6 +32,6 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0"
   }
 }

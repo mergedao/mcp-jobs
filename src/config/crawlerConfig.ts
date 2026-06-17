@@ -298,6 +298,304 @@ export const crawlerConfigs: SiteConfig[] = [
       }
     }
   },
+  {
+    url: 'https://www.lagou.com/',
+    name: 'lagou',
+    urlPattern: '^https://www\\.lagou\\.com/wn/jobs.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      const { keyword, page } = params;
+      const targetPage = page || 1;
+      return 'https://www.lagou.com/wn/jobs' + `?fromSearch=true&kd=${encodeURIComponent(keyword || '')}&pn=${targetPage}`;
+    },
+    rules: {
+      jobInfo: {
+        selector: 'div[class*="job-list"] li, ul[class*="list"] li, div[class*="position"]',
+        type: 'html',
+        handler: async (currentData, value, element) => {
+          const getText = async (selectors: string[]) => {
+            for (const selector of selectors) {
+              try {
+                const v = await element.$eval(selector, el => el.textContent?.trim() || '');
+                if (v) return v;
+              } catch {}
+            }
+            return '';
+          };
+
+          const getHref = async (selectors: string[]) => {
+            for (const selector of selectors) {
+              try {
+                const v = await element.$eval(selector, el => (el as HTMLAnchorElement).href || el.getAttribute('href') || '');
+                if (v) return v.startsWith('http') ? v : `https://www.lagou.com${v}`;
+              } catch {}
+            }
+            try {
+              const v = (await element.getAttribute('href')) || '';
+              if (v) return v.startsWith('http') ? v : `https://www.lagou.com${v}`;
+            } catch {}
+            return '';
+          };
+
+          const title = await getText(['.position__title', '.position-name', '.job-name', 'h3', 'h2']);
+          const salary = await getText(['.position__salary', '.salary', '.money', '[class*="salary"]']);
+          const company = await getText(['.company__name', '.company-name', '.company', '[class*="company"]']);
+          const address = await getText(['.position__address', '.city', '.workplace', '[class*="address"]']);
+          const publishTime = await getText(['.time', '.create-time', '[class*="time"]']);
+          const education = await getText(['.education', '[class*="edu"]']);
+          const experience = await getText(['.experience', '[class*="exp"]']);
+          const industry = await getText(['.industry', '[class*="industry"]']);
+          const companySize = await getText(['.scale', '[class*="scale"]', '[class*="size"]']);
+          const financeStage = await getText(['.finance', '[class*="finance"]']);
+
+          let tags: string[] = [];
+          try {
+            tags = await element.$$eval('.tag, .tags span, [class*="tag"]', elements =>
+              elements.map(el => el.textContent?.trim() || '').filter(Boolean)
+            );
+          } catch {}
+
+          const jobDetail = await getHref(['a[href*="/jobs/"][href$=".html"]', 'a[href*="/jobs/"]', 'a[href]']);
+          if (!title && !company && !jobDetail) {
+            return null;
+          }
+
+          return { title, salary, company, address, tags, jobDetail, publishTime, education, experience, industry, companySize, financeStage };
+        }
+      }
+    }
+  },
+  {
+    url: '',
+    name: 'lagou-detail',
+    urlPattern: '^https://www\\.lagou\\.com/jobs/\\d+\\.html.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      return url;
+    },
+    rules: {
+      job: {
+        selector: 'body',
+        type: 'html',
+        handler: async (currentData, value, element) => {
+          const getText = async (selectors: string[]) => {
+            for (const selector of selectors) {
+              try {
+                const v = await element.$eval(selector, el => el.textContent?.trim() || '');
+                if (v) return v;
+              } catch {}
+            }
+            return '';
+          };
+
+          const jobDescription = await getText(['.job-detail', '.job-detail__content', '.job_bt', '[class*="job"] [class*="desc"]']);
+          const companyDescription = await getText(['.company-intro', '.company_desc', '[class*="company"] [class*="intro"]']);
+          const publishTime = await getText(['.publish_time', '.create-time', '[class*="time"]']);
+          const education = await getText(['.education', '[class*="edu"]']);
+          const experience = await getText(['.experience', '[class*="exp"]']);
+          const industry = await getText(['.industry', '[class*="industry"]']);
+          const companySize = await getText(['.scale', '[class*="scale"]', '[class*="size"]']);
+          const financeStage = await getText(['.finance', '[class*="finance"]']);
+
+          return { jobDescription, companyDescription, publishTime, education, experience, industry, companySize, financeStage };
+        }
+      }
+    }
+  },
+  {
+    url: 'https://www.zhaopin.com/',
+    name: 'zhaopin',
+    urlPattern: '^https://sou\\.zhaopin\\.com/.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      const { keyword, page } = params;
+      const targetPage = page || 1;
+      return 'https://sou.zhaopin.com/' + `?p=${targetPage}&kw=${encodeURIComponent(keyword || '')}`;
+    },
+    rules: {
+      jobInfo: {
+        selector: 'div[class*="joblist"] div, div[class*="JobList"] div',
+        type: 'html',
+        handler: async (currentData, value, element) => {
+          const getText = async (selectors: string[]) => {
+            for (const selector of selectors) {
+              try {
+                const v = await element.$eval(selector, el => el.textContent?.trim() || '');
+                if (v) return v;
+              } catch {}
+            }
+            return '';
+          };
+
+          const getHref = async (selectors: string[]) => {
+            for (const selector of selectors) {
+              try {
+                const v = await element.$eval(selector, el => (el as HTMLAnchorElement).href || el.getAttribute('href') || '');
+                if (v) return v.startsWith('http') ? v : `https:${v}`;
+              } catch {}
+            }
+            return '';
+          };
+
+          const jobDetail = await getHref(['a[href*="jobs.zhaopin.com"]', 'a[href*="jobdetail"]', 'a[href]']);
+          if (!jobDetail) {
+            return null;
+          }
+
+          const title = await getText(['a[href*="jobs.zhaopin.com"]', 'a[href*="jobdetail"]', '[class*="title"]', 'h3']);
+          const salary = await getText(['[class*="salary"]', '.salary']);
+          const company = await getText(['[class*="company"]', '.companyName', '.company']);
+          const address = await getText(['[class*="city"]', '[class*="address"]']);
+          const publishTime = await getText(['[class*="time"]', '[class*="date"]']);
+          const education = await getText(['[class*="edu"]', '[class*="degree"]']);
+          const experience = await getText(['[class*="exp"]']);
+          const industry = await getText(['[class*="industry"]']);
+          const companySize = await getText(['[class*="scale"]', '[class*="size"]']);
+          const financeStage = await getText(['[class*="finance"]']);
+
+          let tags: string[] = [];
+          try {
+            tags = await element.$$eval('span, li', elements =>
+              elements.map(el => el.textContent?.trim() || '').filter(Boolean)
+            );
+          } catch {}
+
+          return { title, salary, company, address, tags, jobDetail, publishTime, education, experience, industry, companySize, financeStage };
+        }
+      }
+    }
+  },
+  {
+    url: '',
+    name: 'zhaopin-detail',
+    urlPattern: '^https://jobs\\.zhaopin\\.com/.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      return url;
+    },
+    rules: {
+      job: {
+        selector: 'body',
+        type: 'html',
+        handler: async (currentData, value, element) => {
+          const getText = async (selectors: string[]) => {
+            for (const selector of selectors) {
+              try {
+                const v = await element.$eval(selector, el => el.textContent?.trim() || '');
+                if (v) return v;
+              } catch {}
+            }
+            return '';
+          };
+
+          const jobDescription = await getText(['[class*="jobDescription"]', '[class*="job-detail"]', '[class*="detail"]']);
+          const companyDescription = await getText(['[class*="company"] [class*="intro"]', '[class*="companyDescription"]']);
+          const publishTime = await getText(['[class*="time"]', '[class*="date"]']);
+          const education = await getText(['[class*="edu"]', '[class*="degree"]']);
+          const experience = await getText(['[class*="exp"]']);
+          const industry = await getText(['[class*="industry"]']);
+          const companySize = await getText(['[class*="scale"]', '[class*="size"]']);
+          const financeStage = await getText(['[class*="finance"]']);
+
+          return { jobDescription, companyDescription, publishTime, education, experience, industry, companySize, financeStage };
+        }
+      }
+    }
+  },
+  {
+    url: 'https://www.51job.com/',
+    name: '51job',
+    urlPattern: '^https://search\\.51job\\.com/list/.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      const { keyword, page } = params;
+      const targetPage = page || 1;
+      return 'https://search.51job.com/list/000000,000000,0000,00,9,99,' + `${encodeURIComponent(keyword || '')},2,${targetPage}.html`;
+    },
+    rules: {
+      jobInfo: {
+        selector: '#resultList .el, .j_joblist .e, div[class*="joblist"] a',
+        type: 'html',
+        handler: async (currentData, value, element) => {
+          const getText = async (selectors: string[]) => {
+            for (const selector of selectors) {
+              try {
+                const v = await element.$eval(selector, el => el.textContent?.trim() || '');
+                if (v) return v;
+              } catch {}
+            }
+            return '';
+          };
+
+          const getHref = async (selectors: string[]) => {
+            for (const selector of selectors) {
+              try {
+                const v = await element.$eval(selector, el => (el as HTMLAnchorElement).href || el.getAttribute('href') || '');
+                if (v) return v.startsWith('http') ? v : `https:${v}`;
+              } catch {}
+            }
+            return '';
+          };
+
+          const jobDetail = await getHref(['a[href*="jobs.51job.com"]', 'a[href$=".html"]', 'a[href]']);
+          if (!jobDetail) {
+            return null;
+          }
+
+          const title = await getText(['a[href*="jobs.51job.com"]', 'a[href$=".html"]', '.t1 a', '.jname']);
+          const salary = await getText(['.t4', '.sal', '[class*="salary"]']);
+          const company = await getText(['.t2 a', '.cname', '[class*="company"]']);
+          const address = await getText(['.t3', '.d', '[class*="city"]']);
+          const publishTime = await getText(['.t5', '.time', '[class*="time"]']);
+          const education = await getText(['.edu', '[class*="edu"]']);
+          const experience = await getText(['.exp', '[class*="exp"]']);
+          const industry = await getText(['.industry', '[class*="industry"]']);
+          const companySize = await getText(['.size', '[class*="scale"]', '[class*="size"]']);
+          const financeStage = await getText(['.finance', '[class*="finance"]']);
+
+          let tags: string[] = [];
+          try {
+            tags = await element.$$eval('span, em, i', elements =>
+              elements.map(el => el.textContent?.trim() || '').filter(Boolean)
+            );
+          } catch {}
+
+          return { title, salary, company, address, tags, jobDetail, publishTime, education, experience, industry, companySize, financeStage };
+        }
+      }
+    }
+  },
+  {
+    url: '',
+    name: '51job-detail',
+    urlPattern: '^https://jobs\\.51job\\.com/.*\\.html.*$',
+    urlBuilder: (url, params, paramsConfig) => {
+      return url;
+    },
+    rules: {
+      job: {
+        selector: 'body',
+        type: 'html',
+        handler: async (currentData, value, element) => {
+          const getText = async (selectors: string[]) => {
+            for (const selector of selectors) {
+              try {
+                const v = await element.$eval(selector, el => el.textContent?.trim() || '');
+                if (v) return v;
+              } catch {}
+            }
+            return '';
+          };
+
+          const jobDescription = await getText(['.bmsg.job_msg.inbox', '#job_detail', '[class*="job"] [class*="msg"]']);
+          const companyDescription = await getText(['.tmsg.inbox', '[class*="company"] [class*="intro"]']);
+          const publishTime = await getText(['.msg.ltype', '[class*="time"]']);
+          const education = await getText(['.edu', '[class*="edu"]']);
+          const experience = await getText(['.exp', '[class*="exp"]']);
+          const industry = await getText(['.industry', '[class*="industry"]']);
+          const companySize = await getText(['.type', '[class*="scale"]', '[class*="size"]']);
+          const financeStage = await getText(['.finance', '[class*="finance"]']);
+
+          return { jobDescription, companyDescription, publishTime, education, experience, industry, companySize, financeStage };
+        }
+      }
+    }
+  },
   // {
   //   url: 'https://www.zhipin.com/web/geek/job?query=%E5%89%8D%E7%AB%AF%E5%BC%80%E5%8F%91%20%E5%8D%97%E4%BA%AC',
   //   name: 'zhipin',
@@ -347,4 +645,3 @@ export const crawlerConfigs: SiteConfig[] = [
   //   }
   // }
 ];
-
