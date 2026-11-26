@@ -12,13 +12,29 @@
 </p>
 
 <p align="center">
-  <a href="#快速开始">快速开始</a> ·
+  <a href="#安装-skill">安装 Skill</a> ·
+  <a href="#连接-mcp">连接 MCP</a> ·
   <a href="#投递与回复跟进">投递与回复跟进</a> ·
   <a href="#workbuddy-本地定时任务">WorkBuddy</a> ·
   <a href="#english">English</a>
 </p>
 
-## 快速开始
+## 安装 Skill
+
+**单装 Skill 就能用。** 把职位描述、截图、原站链接或已有跟进表交给客户端，可以比较岗位、起草沟通和整理已核实的进度。MCP 适合需要直接搜索、持久记录或运行定时任务的用户。
+
+| 客户端 | 安装入口 | 可用模式 |
+| --- | --- | --- |
+| Codex | `.agents/skills/mcp-jobs/` | 独立 Skill、可选本地 MCP |
+| Claude Code | `.claude/skills/mcp-jobs/` | 独立 Skill、可选本地 MCP |
+| Claude 网页 | 上传 Skill ZIP | 独立 Skill |
+| 豆包 | 开放平台导入插件 ZIP，或把 Skill 文本粘贴到会话 | 独立 Skill |
+
+从 GitHub 直接安装时，把整份 `SKILL.md` 保存到表中的目录。下载包和其他安装方式见 [skill-jobs 安装说明](https://github.com/mergedao/mcp-jobs/tree/fix/mcp-search-stability/packages/skill-jobs#readme)，或直接查看 [SKILL.md](https://github.com/mergedao/mcp-jobs/blob/fix/mcp-search-stability/skill/SKILL.md)。豆包与 Claude 网页的 ZIP 是不同格式。豆包公开分发需要通过开放平台审核。
+
+安装后可以试试「用 mcp-jobs 对比这两份职位描述，根据我的经历起草一段沟通消息，再生成一份跟进表」。
+
+## 连接 MCP
 
 ### npm 已发布版
 
@@ -119,7 +135,7 @@ pnpm exec playwright install chromium
 
 ## English
 
-**mcp-jobs** is an MCP server for job search across BOSS Zhipin, Liepin, 51job, and Zhaopin. The published npm release provides job search and details. The 2.0 development branch adds original-site application handoff, local tracking, and resumable notifications for clients such as WorkBuddy. Recruiter replies enter the tracker through user-reported updates.
+**mcp-jobs** is an MCP server for job search across BOSS Zhipin, Liepin, 51job, and Zhaopin. The standalone Skill compares job descriptions, drafts recruiter messages, and maintains a progress table from user-provided updates. The published mcp-jobs npm release provides job search and details. The 2.0 development branch adds original-site application handoff, local tracking, and resumable notifications for clients such as WorkBuddy. Recruiter replies enter the tracker through user-reported updates.
 
 ## License
 

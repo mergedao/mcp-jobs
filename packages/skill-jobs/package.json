@@ -1,0 +1,23 @@
+{
+  "name": "skill-jobs",
+  "version": "0.1.0",
+  "description": "Job-search and application follow-up skill for Codex, Claude, and Doubao, with optional mcp-jobs integration.",
+  "author": "mergedao",
+  "license": "ISC",
+  "bin": { "skill-jobs": "./cli.cjs" },
+  "files": ["cli.cjs", "assets", "bundle", "LICENSE"],
+  "scripts": {
+    "prepack": "node prepare.cjs",
+    "pretest": "node prepare.cjs",
+    "test": "node --test test/*.test.cjs"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": { "fflate": "0.8.2" },
+  "keywords": ["agent-skills", "job-search", "mcp", "codex", "claude", "doubao"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mergedao/mcp-jobs.git",
+    "directory": "packages/skill-jobs"
+  },
+  "homepage": "https://github.com/mergedao/mcp-jobs#安装-skill"
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "skill-jobs",
+  "description": "根据职位描述比较机会、起草招聘沟通，并跟进用户已核实的投递进度。",
+  "author": { "name": "mergedao" },
+  "homepage": "https://github.com/mergedao/mcp-jobs",
+  "license": "ISC",
+  "extensions": {
+    "com.doubao": {
+      "displayName": "求职助手",
+      "icon": "./com.doubao/assets/plugin-icon.png"
+    }
+  }
+}
