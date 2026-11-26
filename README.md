@@ -1,18 +1,57 @@
-# mcp-jobs
+<h1 align="center">mcp-jobs</h1>
 
-通过 MCP 聚合 BOSS 直聘、猎聘、前程无忧（51job）和智联招聘。支持搜岗、职位详情、原站投递和沟通交接、本地申请投递追踪，以及增量通知。
+<p align="center"><strong>在 MCP 客户端查职位，把投递和跟进放进同一个流程。</strong></p>
 
-## 安装
+<p align="center">BOSS 直聘 · 猎聘 · 前程无忧（51job）· 智联招聘</p>
 
-需要 Node.js 22 或以上。源码版本的启动方式如下。
+<p align="center">
+  <a href="https://github.com/mergedao/mcp-jobs/stargazers"><img src="https://img.shields.io/github/stars/mergedao/mcp-jobs?style=flat-square&amp;logo=github&amp;label=Stars" alt="GitHub Stars"></a>
+  <a href="https://www.npmjs.com/package/mcp-jobs"><img src="https://img.shields.io/npm/v/mcp-jobs?style=flat-square&amp;logo=npm&amp;label=npm" alt="当前 npm 版本"></a>
+  <a href="https://www.npmjs.com/package/mcp-jobs"><img src="https://img.shields.io/npm/dm/mcp-jobs?style=flat-square&amp;label=Downloads%20%2F%20month" alt="npm 近 30 天下载量"></a>
+  <a href="https://github.com/mergedao/mcp-jobs/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-ISC-475569?style=flat-square" alt="ISC License"></a>
+</p>
+
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#投递与回复跟进">投递与回复跟进</a> ·
+  <a href="#workbuddy-本地定时任务">WorkBuddy</a> ·
+  <a href="#english">English</a>
+</p>
+
+## 快速开始
+
+### npm 已发布版
+
+当前 `npm latest` 是 **1.4.0**，用于搜职位和获取详情。在支持 stdio MCP 的客户端中添加以下配置。
+
+```json
+{
+  "mcpServers": {
+    "mcp-jobs": {
+      "command": "npx",
+      "args": ["-y", "mcp-jobs@1.4.0"]
+    }
+  }
+}
+```
+
+连接后可以试试这个搜索。
+
+> 搜北京的前端工程师职位，按平台列出职位名称、公司、薪资和原站链接，并说明哪些平台没有返回可用结果。
+
+### 试用 2.0 开发版
+
+想用**原站投递交接、投递追踪和 WorkBuddy 本地提醒**，请从开发分支构建。开发版需要 **Node.js 22+** 和 pnpm。
 
 ```bash
+git clone --branch fix/mcp-search-stability https://github.com/mergedao/mcp-jobs.git
+cd mcp-jobs
 pnpm install --frozen-lockfile
 pnpm build
 pnpm exec playwright install chromium
 ```
 
-在 MCP 客户端配置本地 stdio 服务。
+让客户端运行构建后的 MCP 服务。把示例里的两个路径换成你的绝对路径。
 
 ```json
 {
@@ -20,31 +59,36 @@ pnpm exec playwright install chromium
     "mcp-jobs": {
       "command": "node",
       "args": ["/absolute/path/to/mcp-jobs/dist/mcp.js"],
-      "env": { "MCP_JOBS_PROFILE_DIR": "/absolute/path/to/personal/profile" }
+      "env": {
+        "MCP_JOBS_PROFILE_DIR": "/absolute/path/to/personal/profile"
+      }
     }
   }
 }
 ```
 
-## 搜索与登录
+### 如何读懂搜索结果
 
-- `mcp_search_job` 返回职位及每个平台的状态和覆盖范围。一个来源失败时，其他来源已完成的结果仍可用。看到 `partial: true` 时，本次结果只覆盖已完成的页。
-- 51job 使用公开页面样本。样本只支持适配器声明的条件，覆盖范围由 `coverage: public_page` 标记。完整职位仍以原站为准。
-- `mcp_job_detail` 接受搜索输出的官方链接。遇到登录、访问验证或限流时，查看逐源状态以及返回的原站链接。验证由用户在原站处理。
-- `mcp_platform_login` 打开官方登录页或返回其链接，随后交回控制权。登录完成后用 `mcp_profile_status` 查询状态。用户口头确认通过 `mcp_login_confirmed` 记录，当前会话未经平台核对时显示 `unknown`。BOSS 和猎聘还会记录最近看到本地会话凭证的时间，线索与用户确认独立。
+- **可以用的结果先返回。** 开发版会逐源报告状态与覆盖范围。`partial: true` 表示只拿到了已经完成的页。
+- **公开列表有范围。** `coverage: public_page` 表示结果来自单个公开页面样本。部分平台或页面不支持全部筛选条件。
+- **需要登录时回到平台。** 查看来源返回的原站链接。遇到登录或验证，由用户在官方页面处理。限流、访问限制和确认无匹配是不同结果。
 
-## 投递、沟通和反馈
+## 投递与回复跟进
 
-1. 用 `mcp_prepare_application` 生成沟通草稿，用 `mcp_apply_job` 按 `platform`、`accountId`、`url` 建档。账号代号用 `personal` 这类本地别名。
-2. 用户在返回的官方页面核对职位、简历、收件方和文案，亲自提交或发送。`prepared` 仅表示已建档。再次建档返回已有记录。
-3. 用户在原站核实结果后，用 `mcp_feedback_import` 回填投递状态，或用会话代号、消息代号和发生时间记录招聘方回复。同一条回复重复导入只记录一次。使用稳定的原站标识或本地代号，避免填入私信正文、手机号或凭证。
-4. 用 `mcp_application_list` 查投递追踪，用 `mcp_check_feedback` 读取未确认动态。读取结果包含 `source: user_reported`。登录过期或来源不可用可单独回填，原有申请记录继续保留。
+以下流程适用于 **2.0 开发版**，四个平台使用相同的操作方式。
 
-四个平台当前都采用人工回填。工具名 `mcp_feedback_import` 保持兼容，含义是记录用户已核实的动态。`mcp_feedback_ack` 只确认通知消费进度。原站新消息需要先经过回填才能进入提醒。历史自动操作记录仍可通过 `mcp_actions_log` 查询。简历档案单独通过 `mcp_my_profile` 管理，读取结果会交给调用它的 MCP 客户端。
+| 你想做什么 | 用哪个工具 | 会得到什么 |
+| --- | --- | --- |
+| 看职位详情 | `mcp_job_detail` | 读取搜索结果中的官方职位链接 |
+| 起草沟通、保存待投递职位 | `mcp_prepare_application` / `mcp_apply_job` | 沟通草稿、官方链接和待提交记录 |
+| 记录投递结果或招聘方回复 | `mcp_feedback_import` | 保存用户在原站核实的动态 |
+| 查进度、处理提醒 | `mcp_application_list` / `mcp_check_feedback` | 分账号列出投递记录和未确认动态 |
+
+用户在官方页面核对职位、简历、收件方和文案，再亲自提交或发送。`prepared` 表示待操作。原站动态经用户回填后才进入通知。检查不到数据时，客户端需要展示来源状态。
 
 ## WorkBuddy 本地定时任务
 
-前台会话使用普通 MCP 配置。定时任务使用同一台机器和同一数据目录，将任务的 MCP 进程设为监控模式。
+在同一台机器上使用前台 MCP 和监控 MCP，并让两个进程读取同一个 `MCP_JOBS_PROFILE_DIR`。监控进程使用以下本地 stdio 配置。
 
 ```json
 {
@@ -63,21 +107,20 @@ pnpm exec playwright install chromium
 }
 ```
 
-- 为每个任务固定 `platform`、`accountId` 和 `consumer`。`mcp_check_feedback` 返回 `updates_available`、`more_available`、`no_updates`、`not_synced` 或来源状态。查看 `sync` 的状态和时间以判断记录新鲜度。
-- 展示或持久化本页动态后，用 `mcp_feedback_ack` 提交读取结果的 `cursor` 和 `nextCursor`，后者作为 `through`。确认后重启仍会从已保存的进度继续。确认前的重试可用平台、账号和 `notificationId` 去重。存在 `hasMore` 时继续读下一页。
-- 新职位监控用 `mcp_watch_check`，按平台建立基线。连续两次成功扫描出现的候选才报告。来源暂不可用时保留未过期候选，成功扫描缺席会淘汰候选。新职位会保留到 `mcp_watch_ack` 使用 `watchId` 和 `nextCursor` 确认交付。`mcp_watch_reset` 的平台列表应和原任务一致。升级后旧版聚合基线会在首次成功检查时按平台重建。
-- 本机浏览器和本地投递追踪适用于 WorkBuddy **本地任务**。平台后台自动同步需要单独的授权数据来源。
+- **回复与投递状态**。固定 `platform`、`accountId` 和 `consumer`，用 `mcp_check_feedback` 读取回填动态。展示或持久化成功后，用 `mcp_feedback_ack` 确认进度。
+- **新职位**。用 `mcp_watch_check` 按关键词、城市和平台巡检。首次成功扫描建立基线。通知成功后用 `mcp_watch_ack` 确认，进程重启后可续读未确认通知。
 
-[连接器文档](https://open.workbuddy.cn/docs/connector) · [定时任务文档](https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Automation-Guide)
+完整参数和失败处理见 [mcp-jobs Skill](https://github.com/mergedao/mcp-jobs/blob/fix/mcp-search-stability/skill/SKILL.md)。客户端配置见 [WorkBuddy 连接器文档](https://open.workbuddy.cn/docs/connector)。
 
-## 配置与测试
+## 开发与反馈
 
-常用环境变量见 [`.env.example`](.env.example)。`pnpm test` 会构建并运行离线回归，使用临时目录、公开页面样本和 MCP stdio 客户端。
+- 开发分支执行 `pnpm test`，运行临时目录和模拟招聘页面的离线回归。
+- 反馈问题时，可以附上平台、安装版本、MCP 客户端、来源 `status` 和脱敏职位链接。 [提交 Issue](https://github.com/mergedao/mcp-jobs/issues/new)
 
 ## English
 
-Search BOSS Zhipin, Liepin, 51job, and Zhaopin with per-source status and partial results. Open the original site to submit an application or send a draft. Record verified application status and reply metadata in the local ledger. Scheduled clients can read and acknowledge imported events with a durable cursor. WorkBuddy local tasks can set `MCP_JOBS_MONITOR_ONLY=1`.
+**mcp-jobs** is an MCP server for job search across BOSS Zhipin, Liepin, 51job, and Zhaopin. The published npm release provides job search and details. The 2.0 development branch adds original-site application handoff, local tracking, and resumable notifications for clients such as WorkBuddy. Recruiter replies enter the tracker through user-reported updates.
 
 ## License
 
-[ISC](LICENSE). Based on [diverseforest/mcp-jobs](https://github.com/diverseforest/mcp-jobs).
+ISC. Based on [diverseforest/mcp-jobs](https://github.com/diverseforest/mcp-jobs).

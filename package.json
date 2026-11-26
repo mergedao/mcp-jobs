@@ -1,7 +1,7 @@
 {
   "name": "mcp-jobs",
   "version": "2.0.0",
-  "description": "四平台职位聚合 MCP — normalized job search across BOSS Zhipin / Liepin / 51job / Zhaopin with login-state awareness, original-site application handoff and incremental monitoring",
+  "description": "MCP server for job search across BOSS Zhipin, Liepin, 51job, and Zhaopin, with original-site application handoff and local job tracking.",
   "main": "./dist/index.js",
   "bin": {
     "mcp-jobs": "./dist/mcp.js"
@@ -15,11 +15,15 @@
     "test": "pnpm build && node --test test/*.test.cjs"
   },
   "keywords": [
-    "jobs",
-    "crawler",
-    "search",
     "mcp",
-    "model-context-protocol"
+    "model-context-protocol",
+    "job-search",
+    "job-tracker",
+    "workbuddy",
+    "zhipin",
+    "liepin",
+    "51job",
+    "zhaopin"
   ],
   "author": "mergedao",
   "license": "ISC",

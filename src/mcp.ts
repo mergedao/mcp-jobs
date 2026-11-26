@@ -61,7 +61,7 @@ const SEARCH_JOB_TOOL: Tool = {
         type: 'integer',
         minimum: 1,
         maximum: 10,
-        description: '每个平台翻页数（默认 1）。BOSS 页间 12-22s 人类节奏，多页会显著增加耗时',
+        description: '每个平台尝试的页数（默认 1）。超时可能返回已完成的页',
       },
       page: {
         type: 'integer',
@@ -115,7 +115,7 @@ const PREPARE_APPLICATION_TOOL: Tool = {
 // 平台登录工具定义
 const PLATFORM_LOGIN_TOOL: Tool = {
   name: 'mcp_platform_login',
-  description: '准备官方登录入口，立即返回登录链接或已打开的状态。完成后另行查询状态。',
+  description: '在前台打开官方登录页并等待用户完成操作。返回的是本地观察结果，任务结束后可用 mcp_profile_status 核对。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -124,6 +124,12 @@ const PLATFORM_LOGIN_TOOL: Tool = {
         enum: ['zhipin', 'zhaopin', 'liepin', '51job'],
         description: '要登录的平台'
       },
+      waitSeconds: {
+        type: 'integer',
+        minimum: 30,
+        maximum: 600,
+        description: '等待用户登录的时间上限，默认 240 秒。仅在前台任务使用'
+      }
     },
     required: ['platform']
   }
@@ -302,7 +308,7 @@ const ACTIONS_LOG_TOOL: Tool = {
 // 用户主简历档案工具
 const MY_PROFILE_TOOL: Tool = {
   name: 'mcp_my_profile',
-  description: '管理用户主简历档案（本地 JSON，永不上传）。set 存入用户完整经历（技能/工作/项目/教育）；get 读取。配合 mcp_job_detail 拿到目标职位 JD 后，agent 可本地生成针对该职位定制的简历文件。',
+  description: '管理存储在本地的简历档案。get 会把档案返回给调用的 MCP 客户端。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -319,7 +325,7 @@ const MY_PROFILE_TOOL: Tool = {
 // 人工确认登录工具（没有可靠登录 cookie 特征的平台用）
 const LOGIN_CONFIRMED_TOOL: Tool = {
   name: 'mcp_login_confirmed',
-  description: '人工确认登录并记录：用于没有可靠登录 cookie 特征的平台（如猎聘）。用户在对话里说「xx 登录好了」时调用，把登录态写入 profile 感知。',
+  description: '记录用户主动确认登录的时间。可用 mcp_profile_status 另行查看本地会话线索。',
   inputSchema: {
     type: 'object',
     properties: {
