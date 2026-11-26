@@ -58,7 +58,8 @@ function jobOf(platform: Platform, fields: Record<string, unknown>): Job {
   const url = officialJobLink(text(fields.url, 'url', 2048));
   if (!url) throw new Error('需要官方 HTTPS 职位链接');
   const match = platform === 'liepin' && /^(?:www|m)\.liepin\.com$/.test(url.hostname)
-    ? /^\/job\/(\d+)\.shtml$/.exec(url.pathname)
+    // 搜索结果两种链接形态都接受（review 修复：/a/<hash>.shtml 与 /job/<id>.shtml 共用一套识别）
+    ? /^\/(?:job\/(\d+)|a\/([A-Za-z0-9]+))\.shtml$/.exec(url.pathname)
     : platform === '51job' && /^(?:jobs|msearch)\.51job\.com$/.test(url.hostname)
       ? /^\/(?:jobs\/)?[a-z0-9-]+\/(\d+)\.html$/i.exec(url.pathname)
       : null;
@@ -67,7 +68,7 @@ function jobOf(platform: Platform, fields: Record<string, unknown>): Job {
   url.hash = '';
   if (platform === 'liepin') url.hostname = 'www.liepin.com';
   return {
-    jobId: match[1],
+    jobId: match[1] ?? match[2],
     url: url.href,
     title: optionalText(fields.title, 'title'),
     company: optionalText(fields.company, 'company')

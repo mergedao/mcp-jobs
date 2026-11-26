@@ -59,6 +59,7 @@ git clone https://github.com/mergedao/mcp-jobs.git
 cd mcp-jobs
 pnpm install && pnpm build
 npx playwright install chromium   # 浏览器内核（推荐同时安装本机 Chrome）
+# 要求 Node >= 22（CDP 依赖全局 WebSocket 与 Playwright 版本线）
 ```
 
 ### MCP 客户端配置
@@ -96,6 +97,7 @@ npx playwright install chromium   # 浏览器内核（推荐同时安装本机 C
 | `mcp_my_profile` | 本地主简历档案（get/set） |
 | `mcp_watch_check` | 职位增量监控（二次确认去噪） |
 | `mcp_watch_reset` | 重置监控基线 |
+| `mcp_application_list` | 51job/猎聘投递台账（跨重启持久） |
 
 ## ⚙️ 配置（全部可选）
 
@@ -196,6 +198,7 @@ let the site's own security JS issue credentials, and never touch private endpoi
 git clone https://github.com/mergedao/mcp-jobs.git && cd mcp-jobs
 pnpm install && pnpm build
 npx playwright install chromium
+# Requires Node >= 22 (global WebSocket + Playwright line)
 ```
 
 ```json

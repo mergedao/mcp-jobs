@@ -1,6 +1,6 @@
 {
   "name": "mcp-jobs",
-  "version": "1.4.0",
+  "version": "2.0.0",
   "description": "四平台职位聚合 MCP — normalized job search across BOSS Zhipin / Liepin / 51job / Zhaopin with login-state awareness, semi-automatic apply and incremental monitoring",
   "main": "./dist/index.js",
   "bin": {
@@ -33,10 +33,11 @@
   },
   "files": [
     "dist",
+    "skill",
     "README.md"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22"
   },
   "repository": {
     "type": "git",

@@ -1,5 +1,5 @@
 import { managedCdpUrl } from '../core/browser';
-import { rawDomPage, domSearch, pause, waitForText } from '../core/cdp';
+import { navigateAndVerifyTarget, rawDomPage, domSearch, pause, waitForText } from '../core/cdp';
 import { logAction } from '../core/actionsLog';
 
 /**
@@ -22,6 +22,13 @@ export async function applyZhaopinJob(jobUrl: string, jobTitle: string | undefin
   const { session } = page;
 
   try {
+    // P0 安全闸：导航到确认单 URL 并核对页面确实是目标职位
+    const verify = await navigateAndVerifyTarget(session, jobUrl, jobTitle, 20000);
+    if (!verify.ok) {
+      logAction({ platform, kind: 'apply', jobUrl, jobTitle, result: 'failed', detail: verify.detail });
+      return { status: 'failed', detail: verify.detail };
+    }
+
     const ready = await waitForText(session, '申请职位', 15000).catch(() => false);
     if (!ready) {
       const applied = await domSearch(session, '已申请', 2);

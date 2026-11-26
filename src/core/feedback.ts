@@ -68,21 +68,23 @@ export async function captureBossChats(timeoutMs = 20000): Promise<BossChatSumma
       for (const [k, c] of Object.entries(v)) walkArrays(c, cb, d + 1, path + '.' + k);
     };
     const handler = (msg: any) => {
+      // responseReceived 与 loadingFinished 是互斥事件，必须同级判断——
+      // 嵌套写法会导致 body 读取分支永远不可达（review P1 修复）
       if (msg.method === 'Network.responseReceived') {
         const url = String(msg.params?.response?.url ?? '');
         if (/zhipin\.com/.test(url) && /(chat|friend|message|im)/i.test(url) && !/\.(js|css|png|gif|woff)/i.test(url)) {
           pendingDocs.add(String(msg.params.requestId));
         }
-        if (msg.method === 'Network.loadingFinished' && pendingDocs.has(String(msg.params?.requestId))) {
-          const id = String(msg.params.requestId);
-          pendingDocs.delete(id);
-          rawSend<{ body: string; base64Encoded: boolean }>(session, 'Network.getResponseBody', { requestId: id })
-            .then(body => {
-              const parsed = safeJsonParseCompat(body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body);
-              if (parsed) bodies.push(parsed);
-            })
-            .catch(() => {});
-        }
+      }
+      if (msg.method === 'Network.loadingFinished' && pendingDocs.has(String(msg.params?.requestId))) {
+        const id = String(msg.params.requestId);
+        pendingDocs.delete(id);
+        rawSend<{ body: string; base64Encoded: boolean }>(session, 'Network.getResponseBody', { requestId: id })
+          .then(body => {
+            const parsed = safeJsonParseCompat(body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body);
+            if (parsed) bodies.push(parsed);
+          })
+          .catch(() => {});
       }
     };
     session.listeners.add(handler);

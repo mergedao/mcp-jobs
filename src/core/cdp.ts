@@ -359,6 +359,37 @@ export async function waitForText(session: RawSession, text: string, timeoutMs: 
   return false;
 }
 
+/**
+ * 写操作安全闸（review P0）：把 role 标签导航到确认单指定的职位页，并核对当前页面
+ * 确实是目标职位——职位标题片段出现在 DOM 中。核对不过即失败中止，
+ * 防止「确认单是 A 职位、点击却发生在 B 页面」的错目标风险。
+ */
+export async function navigateAndVerifyTarget(
+  session: RawSession,
+  jobUrl: string,
+  titleFragment: string | undefined,
+  timeoutMs = 20000,
+  signal?: AbortSignal
+): Promise<{ ok: boolean; detail: string }> {
+  await rawSend(session, 'Page.navigate', { url: jobUrl }).catch(() => {});
+  const deadline = Date.now() + timeoutMs;
+  // 无标题时：导航目标就是确认单 URL 本身（URL 即绑定），等页面稳定后放行
+  if (!titleFragment) {
+    await pause(2500);
+    return { ok: true, detail: '已导航到确认单 URL（无标题可核对）' };
+  }
+  const frag = titleFragment.trim().slice(0, 12);
+  while (Date.now() < deadline && !signal?.aborted) {
+    const hits = await domSearch(session, frag, 1);
+    if (hits.length) return { ok: true, detail: `目标核对通过（标题「${frag}」命中）` };
+    await pause(800 + Math.floor(Math.random() * 600));
+  }
+  return {
+    ok: false,
+    detail: `目标核对失败：${Math.round(timeoutMs / 1000)}s 内未在页面确认到「${frag}」。为防错目标已中止写操作`
+  };
+}
+
 /** 通用：导航目标页并捕获 Document 主文档响应体（SSR 数据提取用；同样零 Runtime 附加）。 */
 export async function rawCaptureDocument(
   cdpUrl: string,

@@ -1,11 +1,12 @@
 import { managedCdpUrl } from '../core/browser';
-import { domBoxCenter, domSearch, humanClickAt, humanType, pause, waitForText } from '../core/cdp';
+import { domBoxCenter, domSearch, humanClickAt, humanType, navigateAndVerifyTarget, pause, waitForText } from '../core/cdp';
 import { logAction } from '../core/actionsLog';
 import type { RawSession } from '../core/cdp';
 
 /**
  * BOSS 直聘写操作（半自动，纯模拟点击，不碰任何接口）：
- * 实测行为：点击「立即沟通」= BOSS 立即自动发送默认招呼语并翻转为「继续沟通」。
+ * 安全闸：先把标签导航到确认单 URL，并核对职位标题出现在页面（防错目标），
+ * 再执行点击。实测行为：点击「立即沟通」= BOSS 立即自动发送默认招呼语并翻转为「继续沟通」。
  * 自定义文案作为后续聊天消息补发（textarea.input-area → 逐字输入 → 严格匹配「发送」点击）。
  * 判断依据只用页面真实状态（按钮翻转/已发送标记），不用本地配额计数（服务端配额才是真配额）。
  * 注意：可能遇到隐私设置类弹窗——流程会如实上报，由用户处理。
@@ -45,6 +46,13 @@ export async function applyZhipinJob(jobUrl: string, message: string | undefined
   const { session } = page;
 
   try {
+    // P0 安全闸：导航到确认单 URL 并核对页面确实是目标职位
+    const verify = await navigateAndVerifyTarget(session, jobUrl, jobTitle, 20000, undefined);
+    if (!verify.ok) {
+      logAction({ platform, kind: 'greet', jobUrl, jobTitle, message, result: 'failed', detail: verify.detail });
+      return { status: 'failed', detail: verify.detail };
+    }
+
     // 等职位卡片渲染（「立即沟通」或「继续沟通」出现其一）
     const ready = await waitForText(session, '立即沟通', 15000);
     const continuedBtn = ready ? [] : await domSearch(session, '继续沟通', 2);

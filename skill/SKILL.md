@@ -45,11 +45,12 @@ owner-contact-email: OWNER_EMAIL_PLACEHOLDER
 - 可能遇到隐私/设置类弹窗 → 如实上报，请用户在窗口里处理后重试
 - 51job/猎聘：台账模式（prepareTrackedApplication 记录，用户在官方页面手动投递）
 
+- 51job/猎聘：台账模式（prepareTrackedApplication 记录，用户在官方页面手动投递）
+
 ### ③ 沟通/投递反馈
 - BOSS：`mcp_check_feedback {platform:'zhipin'}` 打开聊天页被动捕获会话列表（谁回复了）
 - 智联：`mcp_check_feedback {platform:'zhaopin'}` 读投递状态标记
-- 51job/猎聘：`mcp_application_list` 看台账；`mcp_feedback_import` 导入用户报告的状态；
-  通知用户后用 `mcp_feedback_ack` 消费游标
+- 51job/猎聘：`mcp_application_list` 看台账（跨重启持久，按平台+账号代号隔离）
 
 ## 关键交互约定
 
@@ -109,10 +110,9 @@ owner-contact-email: OWNER_EMAIL_PLACEHOLDER
 
 ## 51job 与猎聘投递和反馈
 
-- 用 `mcp_apply_job` 准备本地申请，指定平台、官方职位 URL 和账号代号。收到 `already_tracked` 时，展示已有状态。
-- 用户在原站登录、核对并提交后，用 `mcp_feedback_import` 录入已观察到的投递状态或回复元数据。用户没能确认结果时记录 `unknown`；回复用稳定的会话 ID 和消息 ID 去重。
-- 用 `mcp_application_list` 查看台账。提醒任务用 `mcp_check_feedback` 读取本地增量。通知成功后，用同一账号和消费者调用 `mcp_feedback_ack`，将读取时的 `cursor` 和 `nextCursor` 分别作为 `cursor` 与 `through`。
-- 会话过期或同步失败可以单独上报 `session_expired` 或 `unavailable`，历史仍然保留。提交和发送在招聘原站完成。
+- 用 `mcp_apply_job` 准备本地台账申请，指定平台、官方职位 URL 和账号代号（`already_tracked` 表示该职位已在台账中）。提交在招聘原站由用户完成。
+- 用户在原站提交后，可直接口头告知结果（如「已投递」「被查看了」），agent 在对话中跟踪即可；台账以 `mcp_application_list` 为准。
+- 提醒任务用 `mcp_check_feedback` 读取平台侧增量（猎聘/51job 登录态有效时也可用各自平台的被动捕获）。提交和发送在招聘原站完成。
 
 ## 环境变量（都可选）
 

@@ -16,7 +16,13 @@ const WATCH_FILE = () => path.join(profileDir(), '..', 'watch-state.json');
 const MAX_SEEN = 2000;
 
 type WatchShape = {
-  watches: Record<string, { seenIds: string[]; pendingIds: string[]; updatedAt: string; lastNewCount: number }>;
+  watches: Record<string, {
+    seenIds: string[];
+    pendingIds: string[];
+    pendingFirstSeenAt?: Record<string, number>;
+    updatedAt: string;
+    lastNewCount: number;
+  }>;
 };
 
 function readWatchState(): WatchShape {
@@ -87,7 +93,7 @@ export async function watchCheck(args: WatchCheckArgs): Promise<WatchCheckResult
   };
 
   const state = readWatchState();
-  const entry = state.watches[watchId] ?? { seenIds: [], pendingIds: [], updatedAt: '', lastNewCount: 0 };
+  const entry = state.watches[watchId] ?? { seenIds: [], pendingIds: [], pendingFirstSeenAt: {}, updatedAt: '', lastNewCount: 0 };
   const isFirstBaseline = entry.seenIds.length === 0 && entry.pendingIds.length === 0;
 
   // 当前快照
@@ -128,7 +134,10 @@ export async function watchCheck(args: WatchCheckArgs): Promise<WatchCheckResult
   const confirmedIds = [...pending].filter(id => currentById.has(id) && !seen.has(id));
   const newJobs = confirmedIds.map(id => currentById.get(id)!).filter(Boolean);
 
-  // 候选更新：本轮新出现且未报告过的进候选；已报告的进 seen；消失的候选直接淘汰
+  // 候选更新：本轮新出现且未报告过的进候选；已报告的进 seen。
+  // 消失的候选不淘汰（review P2 修复：某平台本轮失败会把它的候选误判为消失）——
+  // 改为 14 天 TTL：候选超过 14 天仍未确认才清理。
+  const PENDING_TTL_MS = 14 * 24 * 60 * 60 * 1000;
   for (const id of confirmedIds) {
     seen.add(id);
     pending.delete(id);
@@ -136,13 +145,26 @@ export async function watchCheck(args: WatchCheckArgs): Promise<WatchCheckResult
   for (const id of currentIds) {
     if (!seen.has(id)) pending.add(id);
   }
-  for (const id of [...pending]) {
-    if (!currentById.has(id)) pending.delete(id); // 上轮候选本轮消失 → 轮动噪声，淘汰
+  if (entry.pendingFirstSeenAt) {
+    const now = Date.now();
+    for (const [id, firstSeen] of Object.entries(entry.pendingFirstSeenAt)) {
+      if (!pending.has(id) || now - firstSeen > PENDING_TTL_MS) {
+        delete entry.pendingFirstSeenAt[id];
+        pending.delete(id);
+      }
+    }
+  }
+  for (const id of pending) {
+    if (!entry.pendingFirstSeenAt?.[id]) {
+      entry.pendingFirstSeenAt = entry.pendingFirstSeenAt ?? {};
+      entry.pendingFirstSeenAt[id] = Date.now();
+    }
   }
 
   state.watches[watchId] = {
     seenIds: [...seen].slice(-MAX_SEEN),
     pendingIds: [...pending].slice(-MAX_SEEN),
+    pendingFirstSeenAt: entry.pendingFirstSeenAt ?? {},
     updatedAt: new Date().toISOString(),
     lastNewCount: newJobs.length
   };

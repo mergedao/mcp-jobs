@@ -16,8 +16,8 @@ import { getMyProfile, setMyProfile } from './core/myProfile';
 import { zhaopinFeedback } from './platforms/zhaopinActions';
 import { jobPlatform, officialJobLink } from './config/jobLinks';
 import {
-  acknowledgeFeedback, APPLICATION_STATUSES, checkTrackedFeedback, importFeedback, isTrackedPlatform,
-  listApplications, prepareTrackedApplication, SYNC_STATUSES, TRACKED_PLATFORMS
+  checkTrackedFeedback, isTrackedPlatform,
+  listApplications, prepareTrackedApplication, TRACKED_PLATFORMS
 } from './core/applicationTracker';
 import { captureBossChats } from './core/feedback';
 import { recentActions } from './core/actionsLog';
@@ -170,12 +170,16 @@ const WATCH_CHECK_TOOL: Tool = {
 
 const WATCH_RESET_TOOL: Tool = {
   name: 'mcp_watch_reset',
-  description: '清空某个监控的已见集合（下次 check 全部视为新职位）。',
+  description: '清空某个监控的已见集合（下次 check 全部视为新职位）。platforms 参数需与创建监控时一致才能命中原记录。',
   inputSchema: {
     type: 'object',
     properties: {
       keyword: { type: 'string' },
-      city: { type: 'string' }
+      city: { type: 'string' },
+      platforms: {
+        type: 'array',
+        items: { type: 'string', enum: ['zhipin', 'liepin', '51job', 'zhaopin'] }
+      }
     },
     required: ['keyword']
   }
@@ -223,50 +227,6 @@ const APPLICATION_LIST_TOOL: Tool = {
   inputSchema: { type: 'object', properties: TRACKED_SCOPE, required: ['platform', 'accountId'] }
 };
 
-const FEEDBACK_IMPORT_TOOL: Tool = {
-  name: 'mcp_feedback_import',
-  description: '导入用户已在原站核实的 51job 或猎聘投递状态和回复元数据。不会访问原站。',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      ...TRACKED_SCOPE,
-      syncStatus: { type: 'string', enum: [...SYNC_STATUSES] },
-      events: {
-        type: 'array',
-        maxItems: 25,
-        items: {
-          anyOf: [
-            {
-              type: 'object',
-              properties: {
-                type: { const: 'application' },
-                url: { type: 'string' }, title: { type: 'string' }, company: { type: 'string' },
-                status: { type: 'string', enum: [...APPLICATION_STATUSES] },
-                observedAt: { type: 'string', description: '在原站观察到状态的时间，带时区 ISO 时间' },
-                resumeVersion: { type: 'string' },
-                receiptReference: { type: 'string', description: '可选的原站回执编号或可核对代号' }
-              },
-              required: ['type', 'url', 'status', 'observedAt']
-            },
-            {
-              type: 'object',
-              properties: {
-                type: { const: 'reply' },
-                conversationId: { type: 'string', description: '同一原站会话使用稳定代号' },
-                messageId: { type: 'string', description: '同一条回复使用稳定代号' },
-                occurredAt: { type: 'string', description: '回复时间，带时区 ISO 时间' },
-                company: { type: 'string' }, url: { type: 'string' }
-              },
-              required: ['type', 'conversationId', 'messageId', 'occurredAt']
-            }
-          ]
-        }
-      }
-    },
-    required: ['platform', 'accountId']
-  }
-};
-
 const CHECK_FEEDBACK_TOOL: Tool = {
   name: 'mcp_check_feedback',
   description: '查看投递或沟通反馈。51job 和猎聘读取本地已导入动态，处理后用 mcp_feedback_ack 保存进度。',
@@ -278,21 +238,6 @@ const CHECK_FEEDBACK_TOOL: Tool = {
       consumer: CONSUMER
     },
     required: ['platform']
-  }
-};
-
-const FEEDBACK_ACK_TOOL: Tool = {
-  name: 'mcp_feedback_ack',
-  description: '确认已处理的一页反馈。处理完成后传入读取结果的 cursor 和 nextCursor。',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      ...TRACKED_SCOPE,
-      consumer: CONSUMER,
-      cursor: { type: 'integer', minimum: 0 },
-      through: { type: 'integer', minimum: 0, description: '读取结果中的 nextCursor' }
-    },
-    required: ['platform', 'accountId', 'cursor', 'through']
   }
 };
 
@@ -386,7 +331,7 @@ function jsonResult(value: unknown, isError = false) {
 
 // 注册工具列表处理器
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [SEARCH_JOB_TOOL, JOB_DETAIL_TOOL, PREPARE_APPLICATION_TOOL, PLATFORM_LOGIN_TOOL, LOGIN_CONFIRMED_TOOL, PROFILE_STATUS_TOOL, WATCH_CHECK_TOOL, WATCH_RESET_TOOL, MY_PROFILE_TOOL, APPLY_JOB_TOOL, APPLY_CONFIRM_TOOL, APPLICATION_LIST_TOOL, FEEDBACK_IMPORT_TOOL, CHECK_FEEDBACK_TOOL, FEEDBACK_ACK_TOOL, ACTIONS_LOG_TOOL],
+  tools: [SEARCH_JOB_TOOL, JOB_DETAIL_TOOL, PREPARE_APPLICATION_TOOL, PLATFORM_LOGIN_TOOL, LOGIN_CONFIRMED_TOOL, PROFILE_STATUS_TOOL, WATCH_CHECK_TOOL, WATCH_RESET_TOOL, MY_PROFILE_TOOL, APPLY_JOB_TOOL, APPLY_CONFIRM_TOOL, APPLICATION_LIST_TOOL, CHECK_FEEDBACK_TOOL, ACTIONS_LOG_TOOL],
 }));
 
 // 注册工具调用处理器
@@ -506,7 +451,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request, { signal }) => {
       case 'mcp_watch_reset': {
         const fields = args as Record<string, unknown>;
         if (typeof fields.keyword !== 'string' || !fields.keyword.trim()) throw new Error('keyword 必填');
-        const watchId = resetWatch(fields.keyword, typeof fields.city === 'string' ? fields.city : undefined);
+        const platforms = Array.isArray(fields.platforms)
+          ? fields.platforms.filter((p): p is typeof ALL_PLATFORMS[number] => ALL_PLATFORMS.includes(p as any))
+          : undefined;
+        const watchId = resetWatch(fields.keyword, typeof fields.city === 'string' ? fields.city : undefined, platforms);
         return { content: [{ type: 'text', text: JSON.stringify({ watchId, reset: true }) }] };
       }
 
@@ -575,12 +523,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request, { signal }) => {
 
       case 'mcp_application_list':
         return jsonResult(listApplications(args as Record<string, unknown>));
-
-      case 'mcp_feedback_import':
-        return jsonResult(importFeedback(args as Record<string, unknown>));
-
-      case 'mcp_feedback_ack':
-        return jsonResult(acknowledgeFeedback(args as Record<string, unknown>));
 
       case 'mcp_check_feedback': {
         const fields = args as Record<string, unknown>;
