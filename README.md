@@ -6,7 +6,8 @@
 
 <p align="center">
   <a href="https://github.com/mergedao/mcp-jobs/stargazers"><img src="https://img.shields.io/github/stars/mergedao/mcp-jobs?style=flat-square&amp;logo=github&amp;label=Stars" alt="GitHub Stars"></a>
-  <a href="https://www.npmjs.com/package/mcp-jobs"><img src="https://img.shields.io/npm/v/mcp-jobs?style=flat-square&amp;logo=npm&amp;label=npm" alt="当前 npm 版本"></a>
+  <a href="https://www.npmjs.com/package/mcp-jobs"><img src="https://img.shields.io/npm/v/mcp-jobs?style=flat-square&amp;logo=npm&amp;label=mcp-jobs" alt="mcp-jobs npm 版本"></a>
+  <a href="https://www.npmjs.com/package/skill-jobs"><img src="https://img.shields.io/npm/v/skill-jobs?style=flat-square&amp;logo=npm&amp;label=skill-jobs" alt="skill-jobs npm 版本"></a>
   <a href="https://www.npmjs.com/package/mcp-jobs"><img src="https://img.shields.io/npm/dm/mcp-jobs?style=flat-square&amp;label=Downloads%20%2F%20month" alt="npm 近 30 天下载量"></a>
   <a href="https://github.com/mergedao/mcp-jobs/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-ISC-475569?style=flat-square" alt="ISC License"></a>
 </p>
@@ -25,12 +26,12 @@
 
 | 客户端 | 安装入口 | 可用模式 |
 | --- | --- | --- |
-| Codex | `.agents/skills/mcp-jobs/` | 独立 Skill、可选本地 MCP |
-| Claude Code | `.claude/skills/mcp-jobs/` | 独立 Skill、可选本地 MCP |
-| Claude 网页 | 上传 Skill ZIP | 独立 Skill |
-| 豆包 | 开放平台导入插件 ZIP，或把 Skill 文本粘贴到会话 | 独立 Skill |
+| Codex | `npx skill-jobs@0.1.0 install codex` | 独立 Skill、可选本地 MCP |
+| Claude Code | `npx skill-jobs@0.1.0 install claude` | 独立 Skill、可选本地 MCP |
+| Claude 网页 | `npx skill-jobs@0.1.0 export claude`，然后上传 ZIP | 独立 Skill |
+| 豆包 | `npx skill-jobs@0.1.0 export doubao` 导出插件 ZIP，或把 Skill 文本粘贴到会话 | 独立 Skill |
 
-从 GitHub 直接安装时，把整份 `SKILL.md` 保存到表中的目录。下载包和其他安装方式见 [skill-jobs 安装说明](https://github.com/mergedao/mcp-jobs/tree/fix/mcp-search-stability/packages/skill-jobs#readme)，或直接查看 [SKILL.md](https://github.com/mergedao/mcp-jobs/blob/fix/mcp-search-stability/skill/SKILL.md)。豆包与 Claude 网页的 ZIP 是不同格式。豆包公开分发需要通过开放平台审核。
+安装器需要 Node.js 18+。手动安装时，把 `SKILL.md` 保存到 Codex 的 `.agents/skills/mcp-jobs/` 或 Claude Code 的 `.claude/skills/mcp-jobs/`。用户级安装和其他方式见 [skill-jobs 安装说明](https://github.com/mergedao/mcp-jobs/tree/fix/mcp-search-stability/packages/skill-jobs#readme)，或直接查看 [SKILL.md](https://github.com/mergedao/mcp-jobs/blob/fix/mcp-search-stability/skill/SKILL.md)。豆包与 Claude 网页的 ZIP 是不同格式。豆包公开分发需要通过开放平台审核。
 
 安装后可以试试「用 mcp-jobs 对比这两份职位描述，根据我的经历起草一段沟通消息，再生成一份跟进表」。
 

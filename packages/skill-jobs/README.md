@@ -4,14 +4,13 @@
 
 ## 从源码或 tarball 运行
 
-npm 注册表首次发布完成前，可直接使用已下载的 `skill-jobs-0.1.0.tgz`。例如从目标项目目录执行 `npm exec --yes --package=/absolute/path/to/skill-jobs-0.1.0.tgz -- skill-jobs install codex`。
-
+从 tarball 安装时，可直接使用已下载的 `skill-jobs-0.1.0.tgz`。例如从目标项目目录执行 `npm exec --yes --package=/absolute/path/to/skill-jobs-0.1.0.tgz -- skill-jobs install codex`。
 
 在该仓库的 2.0 开发分支根目录执行 `npm ci --prefix packages/skill-jobs`，然后执行 `node packages/skill-jobs/prepare.cjs`。下文命令也可把 `npx skill-jobs` 换成 `node /absolute/path/to/mcp-jobs/packages/skill-jobs/cli.cjs`。
 
 ## 安装到 Codex 或 Claude Code
 
-npm 发布后，从希望启用 Skill 的项目目录运行：
+从希望启用 Skill 的项目目录运行。
 
 ```bash
 npx skill-jobs install codex
@@ -22,7 +21,7 @@ npx skill-jobs install claude
 
 ## Claude 网页或豆包
 
-使用已安装的命令导出相应版本的 ZIP。npm 发布后也可以直接通过 npx 导出。
+使用已安装的命令导出相应版本的 ZIP。也可以直接通过 npx 导出。
 
 ```bash
 npx skill-jobs export claude
