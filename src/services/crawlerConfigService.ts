@@ -1,7 +1,7 @@
 import * as dotenv from 'dotenv';
 import { BrowserConfig } from '../config/crawlerConfig';
 
-dotenv.config();
+dotenv.config({ quiet: true } as Parameters<typeof dotenv.config>[0]);
 
 export interface CrawlerGlobalConfig {
   headless: boolean;

@@ -1,7 +1,8 @@
-import { chromium, firefox, webkit, Browser, BrowserContext, Page, ElementHandle } from 'playwright';
+import { chromium, Browser, BrowserContext, Page, Response } from 'playwright';
 import { SiteConfig, CrawlerRule } from '../config/crawlerConfig';
-import { crawlerConfigs } from '../config/crawlerConfig';
 import { crawlerConfigService } from '../services/crawlerConfigService';
+
+export type PageFailure = 'login_required' | 'access_restricted' | 'rate_limited' | 'unavailable' | 'unrecognized_page' | 'not_found' | 'timeout';
 
 export interface CrawlerData {
   url: string;
@@ -10,7 +11,21 @@ export interface CrawlerData {
   timestamp: number;
   params?: Record<string, string>;
   succeeded: boolean;
+  failure?: PageFailure;
+  empty?: boolean;
   errors?: string[];
+}
+
+function pageFailure(response: Response | null, current: string, target: string): PageFailure | undefined {
+  const code = response?.status();
+  const finalUrl = new URL(current);
+  if (code === 429) return 'rate_limited';
+  if (code === 403 || /(?:^|\/)(?:security|captcha|verify|accountblock)(?:\/|[.-]|$)/i.test(finalUrl.pathname)) return 'access_restricted';
+  if (code === 401 || /(?:^|\/)(?:login|signin|passport)(?:\/|[.-]|$)/i.test(finalUrl.pathname)) return 'login_required';
+  if (code === 404 || code === 410) return 'not_found';
+  if (!code || code >= 400) return 'unavailable';
+  const original = new URL(target);
+  if (finalUrl.origin !== original.origin || finalUrl.pathname.replace(/\/$/, '') !== original.pathname.replace(/\/$/, '')) return 'unrecognized_page';
 }
 
 export class WebCrawler {
@@ -40,7 +55,7 @@ export class WebCrawler {
     }
   }
 
-  private async setupBrowser(): Promise<void> {
+  private async setupBrowser(timeout: number, signal?: AbortSignal): Promise<void> {
     if (!this.browser) {
       this.log('Launching browser...');
 
@@ -51,7 +66,13 @@ export class WebCrawler {
 
       this.log(`Browser launch options: headless=${launchOptions.headless}`);
 
-      this.browser = await chromium.launch(launchOptions);
+      // 优先本机真实 Chrome（指纹先验更强）；不可用再落回 Playwright 内置 Chromium
+      try {
+        this.browser = await chromium.launch({ ...launchOptions, timeout, channel: 'chrome' });
+      } catch {
+        this.browser = await chromium.launch({ ...launchOptions, timeout });
+      }
+      signal?.throwIfAborted();
       this.log('Browser launched');
     }
 
@@ -69,49 +90,46 @@ export class WebCrawler {
   }
 
   private async closeBrowser(): Promise<void> {
-    if (this.context) {
-      this.log('Closing browser context...');
-      await this.context.close();
-      this.context = null;
-    }
-    
-    if (this.browser) {
-      this.log('Closing browser...');
-      await this.browser.close();
-      this.browser = null;
+    const browser = this.browser;
+    this.context = null;
+    if (!browser) return;
+    try {
+      await browser.close();
+    } finally {
+      if (this.browser === browser) this.browser = null;
     }
   }
 
-  private async handleUrl(url: string, config: SiteConfig, params?: Record<string, string>): Promise<void> {
-    this.log(`Starting to crawl URL: ${url}`);
-    
-    if (!this.browser || !this.context) {
-      await this.setupBrowser();
-    }
-    
+  private async handleUrl(url: string, config: SiteConfig, timeout: number, params?: Record<string, string>): Promise<void> {
     let page: Page | null = null;
     
     try {
       this.log('Creating new page...');
       page = await this.context!.newPage();
       
-      // Navigate to the URL with timeout
-      const timeout = config.timeout || 30000;
-      this.log(`Navigating to ${url} with timeout ${timeout}ms`);
-      
-      // 只使用一次网络等待，并设置更合理的等待条件
-      await page.goto(url, { 
-        waitUntil: 'domcontentloaded', // 改为等待 DOM 加载完成
-        timeout: timeout
-      });
-      
-      // 等待一小段时间确保动态内容加载
-      await page.waitForTimeout(2000);
-      
+      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
+      let failure = pageFailure(response, page.url(), url);
+      if (!failure) {
+        const selectors = Object.values(config.rules).map(rule => rule.selector);
+        if (config.emptySelector) selectors.push(config.emptySelector);
+        if (selectors.length) {
+          await page.waitForSelector(selectors.join(', '), { state: 'attached', timeout: Math.min(timeout, 2000) })
+            .catch(error => { if (error.name !== 'TimeoutError') throw error; });
+        }
+        failure = pageFailure(response, page.url(), url);
+        if (!failure && /^(?:Security Verification|安全验证|访问验证)$/i.test((await page.title()).trim())) {
+          failure = 'access_restricted';
+        }
+      }
+      if (failure) {
+        this.saveData(config.name, { url, data: {}, timestamp: Date.now(), succeeded: false, failure });
+        return;
+      }
+
       this.log('Page loaded successfully');
       
       this.log('Extracting data using rules:', config.rules);
-      const { rawData, processedData } = await this.extractData(page);
+      const { rawData, processedData } = await this.extractData(page, config.rules);
       this.log('Data extracted successfully:', { raw: rawData, processed: processedData });
       
       const crawlerData: CrawlerData = {
@@ -120,7 +138,8 @@ export class WebCrawler {
         rawData,
         timestamp: Date.now(),
         params: params,
-        succeeded: true
+        succeeded: true,
+        empty: config.emptySelector ? Boolean(await page.$(config.emptySelector)) : false
       };
 
       this.log(`Saving data for site: ${config.name}`);
@@ -134,6 +153,7 @@ export class WebCrawler {
         data: {},
         timestamp: Date.now(),
         succeeded: false,
+        failure: error.name === 'TimeoutError' ? 'timeout' : 'unavailable',
         errors: [error.message]
       };
       this.log('Saving error data');
@@ -141,7 +161,7 @@ export class WebCrawler {
     } finally {
       if (page) {
         this.log('Closing page...');
-        await page.close();
+        await page.close().catch(() => {});
       }
     }
   }
@@ -156,14 +176,11 @@ export class WebCrawler {
     this.log(`Current data count for ${siteName}: ${this.crawledData.get(siteName)?.length}`);
   }
 
-  private async extractData(page: Page): Promise<{ rawData: Record<string, any>, processedData: Record<string, any> }> {
+  private async extractData(page: Page, rules: Record<string, CrawlerRule>): Promise<{ rawData: Record<string, any>, processedData: Record<string, any> }> {
     const rawData: Record<string, any> = {};
     const processedData: Record<string, any> = {};
-    const rules = crawlerConfigs.find(config => {
-      return config.url === page.url() || (config.urlPattern && new RegExp(config.urlPattern).test(page.url()))
-    })?.rules;
 
-    for (const [key, rule] of Object.entries(rules || [])) {
+    for (const [key, rule] of Object.entries(rules)) {
       this.log(`Extracting data for rule: ${key}`, rule);
       try {
         const elements = await page.$$(rule.selector);
@@ -219,20 +236,29 @@ export class WebCrawler {
     return { rawData: {}, processedData };
   }
 
-  async crawl(config: SiteConfig & { params?: Record<string, string> }): Promise<void> {
+  async crawl(config: SiteConfig & { params?: Record<string, string> }, signal?: AbortSignal, budgetMs = 15000): Promise<void> {
     this.log('Starting crawl with config:', config);
 
     // 设置当前站点配置，以便 setupBrowser 可以使用站点特定的浏览器配置
     this.currentSiteConfig = config;
 
+    const timeout = Math.min(budgetMs, config.timeout ?? crawlerConfigService.getGlobalConfig().timeout);
+    const interrupt = () => { void this.browser?.close().catch(() => {}); };
+    signal?.addEventListener('abort', interrupt, { once: true });
     try {
-      await this.setupBrowser();
-      await this.handleUrl(config.url, config, config.params);
+      signal?.throwIfAborted();
+      await this.setupBrowser(timeout, signal);
+      signal?.throwIfAborted();
+      await this.handleUrl(config.url, config, timeout, config.params);
     } finally {
-      // Only close the browser when we're done with all URLs
-      await this.closeBrowser();
-      // 清理当前站点配置
-      this.currentSiteConfig = undefined;
+      try {
+        await this.closeBrowser().catch(error => {
+          if (!signal?.aborted) console.error('Unable to close browser:', error.message);
+        });
+      } finally {
+        signal?.removeEventListener('abort', interrupt);
+        this.currentSiteConfig = undefined;
+      }
     }
 
     this.log('Crawl completed');
