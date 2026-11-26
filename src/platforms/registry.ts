@@ -1,4 +1,5 @@
 import { searchZhipin } from './zhipin';
+import { search51job } from './job51';
 import { searchLiepin } from './liepin';
 import { searchZhaopin } from './zhaopin';
 import { rawCloseAll, resetBoundPages } from '../core/cdp';
@@ -16,7 +17,11 @@ type SearchFn = (keyword: string, city: string | undefined, page: number, signal
 export const PLATFORM_SEARCH: Partial<Record<JobPlatform, SearchFn>> = {
   zhipin: searchZhipin,
   liepin: (keyword, _city, page, signal, timeoutMs, filters) => searchLiepin(keyword, page, signal, timeoutMs, filters),
-  zhaopin: searchZhaopin
+  zhaopin: searchZhaopin,
+  // 51job 签名直连为可选通道（默认关：公开页样本更稳定；开启拿全量字段，失败自动落回 S2）
+  ...(process.env.MCP_JOBS_ENABLE_51JOB_API === '1'
+    ? { '51job': (keyword, _city, page, signal, timeoutMs, filters) => search51job(keyword, _city, page, signal, timeoutMs, filters) }
+    : {})
 };
 
 const busy = new Set<JobPlatform>();

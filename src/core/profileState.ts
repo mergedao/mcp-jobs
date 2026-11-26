@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { profileDir, managedCdpUrl } from './browser';
-import { portOpen } from './cdp';
-import { bossLoginCookieExpiry, zhipinLoggedIn } from '../platforms/zhipin';
+import { portOpen, rawBrowserSession, rawSend } from './cdp';
+import { BOSS_LOGIN_COOKIE, bossCdpUrls } from '../platforms/zhipin';
 
 /**
  * profile 状态感知：被动、无打扰地感知各平台登录态，持久化到状态文件。
@@ -17,7 +17,8 @@ export type PlatformLoginStatus = {
   cookieExpiresAt?: string;
   lastLoginAt?: string;
   lastVerifiedAt?: string;
-  method: 'cookie' | 'probe' | 'recorded' | 'none';
+  method: 'cookie' | 'recorded' | 'none';
+  sessionEvidence?: 'credential_present' | 'credential_missing' | 'unavailable';
   note?: string;
 };
 
@@ -32,7 +33,7 @@ const STATE_FILE = () => path.join(profileDir(), '..', 'profile-state.json');
 
 type StateShape = {
   lastLoginAt?: Record<string, string>;
-  lastVerifiedAt?: Record<string, string>;
+  lastCredentialSeenAt?: Record<string, string>;
   lastSnapshot?: ProfileSnapshot;
 };
 
@@ -78,31 +79,71 @@ export function startProfilePoller(): void {
   timer.unref?.();
 }
 
+type BrowserCookie = { domain: string; name: string; value: string; expires?: number };
+async function readBrowserCookies(url: string): Promise<BrowserCookie[] | undefined> {
+  const session = await rawBrowserSession(url);
+  if (!session) return undefined;
+  try {
+    const result = await rawSend<{ cookies?: BrowserCookie[] }>(session, 'Storage.getCookies');
+    return Array.isArray(result.cookies) ? result.cookies : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function sessionCookie(cookies: BrowserCookie[] | undefined, domain: string, name: string, nowMs: number) {
+  return cookies?.find(cookie => cookie.name === name && typeof cookie.value === 'string' &&
+    Boolean(cookie.value.trim()) && typeof cookie.domain === 'string' &&
+    (cookie.domain === domain || cookie.domain.endsWith('.' + domain)) &&
+    (cookie.expires === undefined || cookie.expires <= 0 || cookie.expires * 1000 > nowMs));
+}
+
+function loopback(url: string) {
+  try {
+    const endpoint = new URL(url);
+    return ['http:', 'https:'].includes(endpoint.protocol) && ['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function snapshotProfile(): Promise<ProfileSnapshot> {
+  const managed = managedCdpUrl();
+  const alternate = bossCdpUrls().find(url => url !== managed && loopback(url));
+  const chromeRunning = await portOpen(managed);
+  const [managedCookies, alternateCookies] = await Promise.all([
+    chromeRunning ? readBrowserCookies(managed) : undefined,
+    alternate && await portOpen(alternate) ? readBrowserCookies(alternate) : undefined
+  ]);
+  const now = new Date();
+  const updatedAt = now.toISOString();
+  const nowMs = now.getTime();
   const state = readState();
-  const now = () => new Date().toISOString();
-  const chromeRunning = await portOpen(managedCdpUrl());
-
-  const platforms: PlatformLoginStatus[] = [];
-
-  // BOSS：wt2 cookie 精确判定 + 过期时间
-  const zhipinLive = chromeRunning ? await zhipinLoggedIn() : false;
-  const zhipinExpiry = zhipinLive ? await bossLoginCookieExpiry() : 0;
-  platforms.push({
-    platform: 'zhipin',
-    loginRequired: true,
-    loggedIn: chromeRunning ? zhipinLive : 'unknown',
-    cookieExpiresAt: zhipinExpiry > 0 ? new Date(zhipinExpiry * 1000).toISOString() : undefined,
-    lastLoginAt: state.lastLoginAt?.zhipin,
-    lastVerifiedAt: zhipinLive ? now() : state.lastVerifiedAt?.zhipin,
-    method: chromeRunning ? 'cookie' : 'none',
-    note: chromeRunning ? undefined : '托管 Chrome 未运行，状态未知'
+  const lastCredentialSeenAt = { ...state.lastCredentialSeenAt };
+  const bossCookies = alternateCookies ?? managedCookies;
+  const observed = [
+    { platform: 'zhipin', cookies: bossCookies, cookie: sessionCookie(bossCookies, 'zhipin.com', BOSS_LOGIN_COOKIE, nowMs) },
+    { platform: 'liepin', cookies: managedCookies, cookie: sessionCookie(managedCookies, 'liepin.com', 'liepin_login_valid', nowMs) }
+  ];
+  const platforms: PlatformLoginStatus[] = observed.map(({ platform, cookies, cookie }) => {
+    if (cookie) lastCredentialSeenAt[platform] = updatedAt;
+    return {
+      platform,
+      loginRequired: true,
+      loggedIn: 'unknown',
+      lastLoginAt: state.lastLoginAt?.[platform],
+      lastVerifiedAt: lastCredentialSeenAt[platform],
+      cookieExpiresAt: cookie?.expires && cookie.expires > 0 ? new Date(cookie.expires * 1000).toISOString() : undefined,
+      method: cookies ? 'cookie' : state.lastLoginAt?.[platform] ? 'recorded' : 'none',
+      sessionEvidence: cookie ? 'credential_present' : cookies ? 'credential_missing' : 'unavailable',
+      note: cookie ? '已观察到本地会话凭证，平台登录状态尚未确认。' : '当前会话请在官方页面核对。'
+    };
   });
 
-  for (const name of ['zhaopin', 'liepin', '51job']) {
-    const lastLoginAt = state.lastLoginAt?.[name];
+  for (const platform of ['zhaopin', '51job']) {
+    const lastLoginAt = state.lastLoginAt?.[platform];
     platforms.push({
-      platform: name,
+      platform,
       loginRequired: true,
       loggedIn: 'unknown',
       lastLoginAt,
@@ -111,12 +152,7 @@ export async function snapshotProfile(): Promise<ProfileSnapshot> {
     });
   }
 
-  const snapshot: ProfileSnapshot = {
-    updatedAt: now(),
-    profileDir: profileDir(),
-    managedChromeRunning: chromeRunning,
-    platforms
-  };
-  writeState({ lastSnapshot: snapshot });
+  const snapshot = { updatedAt, profileDir: profileDir(), managedChromeRunning: chromeRunning, platforms };
+  writeState({ lastSnapshot: snapshot, lastCredentialSeenAt });
   return snapshot;
 }

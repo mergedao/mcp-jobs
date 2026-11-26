@@ -132,7 +132,7 @@ const PLATFORM_LOGIN_TOOL: Tool = {
 // profile 状态感知工具
 const PROFILE_STATUS_TOOL: Tool = {
   name: 'mcp_profile_status',
-  description: '检查平台会话。51job 和猎聘的公开搜岗与个人会话分开，个人会话未经本工具验证时返回 unknown。',
+  description: '检查本地浏览器会话线索和用户确认时间。凭证线索不代表平台已认可当前会话。',
   inputSchema: { type: 'object', properties: {} }
 };
 
@@ -208,7 +208,7 @@ const APPLY_JOB_TOOL: Tool = {
 
 const APPLICATION_LIST_TOOL: Tool = {
   name: 'mcp_application_list',
-  description: '查看一个平台本地账号的投递台账与最近一次同步状态。',
+  description: '查看一个平台本地账号的投递追踪记录与最近一次同步状态。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -397,9 +397,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, { signal }) => {
     const { name, arguments: args } = request.params;
 
     if (!availableTools.some(tool => tool.name === name)) {
-      throw new Error(name === 'mcp_apply_confirm'
-        ? '请通过 mcp_apply_job 获取职位链接，在官方页面核对并完成操作'
-        : '当前模式未提供该工具');
+      throw new Error('当前模式未提供该工具');
     }
 
     // 记录请求日志
@@ -482,7 +480,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, { signal }) => {
         if (!validPlatforms.includes(String(fields.platform))) {
           throw new Error('platform 必须是 zhipin/zhaopin/liepin/51job');
         }
-        return jsonResult(await startPlatformLogin(fields.platform as typeof ALL_PLATFORMS[number], signal));
+        const waitSeconds = typeof fields.waitSeconds === 'number' && fields.waitSeconds >= 30 ? Math.min(fields.waitSeconds, 600) : 240;
+        return jsonResult(await startPlatformLogin(fields.platform as typeof ALL_PLATFORMS[number], signal, waitSeconds * 1000));
       }
 
       case 'mcp_profile_status': {

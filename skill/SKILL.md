@@ -9,13 +9,13 @@ description: 搜索 BOSS 直聘、猎聘、51job、智联职位，准备原站�
 
 - 用 `mcp_search_job` 搜索。逐源检查 `status`、`coverage` 和 `partial`，把可用结果交给用户。公开页样本的覆盖范围只包括该页面。
 - 用 `mcp_job_detail` 打开搜索结果的官方链接。访问验证交给用户在原站完成。限流时停止本轮该来源。
-- `mcp_platform_login` 返回官方登录入口，或打开页面后立即交回控制权。需要核对时调用 `mcp_profile_status`。用户主动确认后才调用 `mcp_login_confirmed`，该记录表示用户报告的时间。
+- `mcp_platform_login` 返回官方登录入口，或打开页面后立即交回控制权。需要核对时调用 `mcp_profile_status`。用户主动确认后才调用 `mcp_login_confirmed`，该记录表示用户报告的时间。BOSS 和猎聘的本地凭证线索及时间可以辅助判断，当前平台会话仍需单独核对。
 
 ## 投递和沟通
 
 - 用 `mcp_prepare_application` 起草沟通文案，用 `mcp_apply_job` 按平台、账号代号和官方职位链接保存待提交记录。
-- 把官方链接、职位和草稿交给用户，在原站核实后由用户提交或发送。`prepared` 表示待用户操作，`already_tracked` 表示台账已有该职位。
-- 用户从原站核实投递状态或招聘方回复后，用 `mcp_feedback_import` 回填。回复字段用稳定的会话代号、消息代号和带时区的时间。无需传递私信正文或登录凭证。
+- 把官方链接、职位和草稿交给用户，在原站核实后由用户提交或发送。`prepared` 表示待用户操作，`already_tracked` 表示投递追踪已有该职位。
+- 用户从原站核实投递状态或招聘方回复后，用 `mcp_feedback_import` 人工回填已核实的动态。该工具名沿用现有接口。回复字段用稳定的会话代号、消息代号和带时区的时间。无需传递私信正文或登录凭证。
 
 ## 回复提醒和职位监控
 

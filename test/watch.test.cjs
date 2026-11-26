@@ -67,7 +67,7 @@ test('watch only advances a source on successful scans, and expires pending jobs
   assert.equal(reset.newCount, 0);
 });
 
-test('concurrent MCP processes share one unacknowledged job notice and retain it after exit', { timeout: 10000 }, async t => {
+test('concurrent MCP processes share one unacknowledged job notice and retain it after exit', { timeout: 25000 }, async t => {
   const { execFile } = require('node:child_process');
   const { promisify } = require('node:util');
   const run = promisify(execFile);

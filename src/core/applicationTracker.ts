@@ -48,7 +48,7 @@ export function isTrackedPlatform(value: unknown): value is Platform {
 }
 
 function scopeOf(fields: Record<string, unknown>): Scope {
-  if (!isTrackedPlatform(fields.platform)) throw new Error('投递台账仅支持 51job、猎聘、BOSS 直聘和智联');
+  if (!isTrackedPlatform(fields.platform)) throw new Error('投递追踪仅支持 51job、猎聘、BOSS 直聘和智联');
   const accountId = text(fields.accountId, 'accountId', 64);
   if (!/^[a-z0-9_-]+$/i.test(accountId)) throw new Error('accountId 应为本地账号代号');
   return { platform: fields.platform, accountId };
@@ -97,7 +97,7 @@ function loadLedger(dir: string): Entry[] {
     throw error;
   }
   return names.filter(name => /^\d{12}\.json$/.test(name)).sort().map((name, index) => {
-    if (Number(name.slice(0, 12)) !== index + 1) throw new Error('投递台账记录不连续');
+    if (Number(name.slice(0, 12)) !== index + 1) throw new Error('投递追踪记录不连续');
     return JSON.parse(readFileSync(join(dir, name), 'utf8')) as Entry;
   });
 }
@@ -130,7 +130,7 @@ function transact<T>(scope: Scope, update: (entries: Entry[]) => { entry?: Entry
       }
     }
   }
-  throw new Error('投递台账正在被其他进程更新，请重试');
+  throw new Error('投递追踪正在被其他进程更新，请重试');
 }
 
 function project(entries: Entry[]) {
