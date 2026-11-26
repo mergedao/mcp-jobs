@@ -1,340 +1,220 @@
+<div align="center">
+
 # mcp-jobs
 
-🚀 **零配置** 的多平台职位聚合服务！基于 MCP 架构，支持从主流招聘网站获取职位信息，**开箱即用，无需任何设置**。
+**四平台职位聚合 MCP · All-in-One Job Search MCP**
 
-[![NPM Version][npm-image]][npm-url]
-[![Node.js Version][node-version-image]][node-version-url]
-[![License][license-image]][license-url]
+一个 MCP Server，聚合 **BOSS直聘 / 猎聘 / 前程无忧(51job) / 智联招聘** 四大招聘平台——
+归一化搜索筛选、多页翻页、登录态感知、半自动投递、职位增量监控、本地定制简历。
 
-## ⚡ 30 秒快速开始
+[中文](#-特性) · [English](#english)
 
-### 🚀 第一步：启动服务（零配置）
+</div>
 
-```bash
-# 一行命令，立即启动
-npx -y mcp-jobs
-```
+---
 
-### 🤖 第二步：配置 AI 客户端
+## ✨ 特性
 
-在您的 AI 客户端（如 Cursor、Claude Desktop）中添加：
-- **服务名称**: `mcp-jobs`
-- **命令**: `npx -y mcp-jobs`
-- **环境变量**: 留空
+### 🔍 归一化搜索
+- **四平台并发搜索**：一次调用聚合全部平台结果，逐源报告状态与覆盖率
+- **归一化筛选**：薪资 / 工作年限 / 学历 / 职位类型，统一语义——有原生筛选码的平台走原生筛选（BOSS `experience`/`salary`、猎聘 `salaryCode`/`workYearCode`），其余平台客户端过滤保证语义一致
+- **多页翻页**：`maxPages` 串行翻页聚合去重，页间内置人类节奏噪声（BOSS 12–22s 红线）
 
-### 💬 第三步：开始使用
+### 🧬 反检测取数（每平台一条最优解）
+| 平台 | S1 通道 | 说明 |
+|---|---|---|
+| BOSS直聘 | 裸 CDP 被动旁听 `joblist.json` | 薪资明文；`__zp_stoken__` 由真实浏览器现场换发，不逆向 |
+| 猎聘 | SPA 被动旁听 `pc-search-job` | 让页面自己发请求（自带全套风控头/token） |
+| 51job | HMAC-SHA256 签名直连 + WAF 求解 | 免登录；新版 VM WAF 由真 Chrome 现场过 |
+| 智联 | SSR 文档捕获 | 职位列表内嵌于 `__INITIAL_STATE__`，零 JS 执行 |
 
-直接向 AI 助手说：*"搜索北京的前端开发职位"*
+核心原则：**真实 Chrome + 最小 CDP 域（Network/Page/Storage，绝不启用 Runtime）+ 被动旁听**——
+不注入、不调用私有接口、无自动化特征可探测。S1 失败自动落回 S2 公开页/DOM，永不静默失败。
 
-**就这么简单！** 🎉 无需注册、无需 API Key、无需配置文件。
+### 🪪 统一登录与状态感知
+- **单 profile 单窗口**：一个 Chrome 管全部平台登录态，每平台至多一个标签，多账号才启用多 profile
+- **登录直达**：需要登录时自动打开登录页并置前（唯一抢焦点的时刻），cookie 静默轮询检测，登录后自动继续
+- **状态感知**：被动自检落盘，`mcp_profile_status` 随时读取登录态与 cookie 过期时间；持久化 cookie 基线让检测跨时间可靠
 
-## 🌟 核心特性
+### 📬 半自动投递与反馈
+- **两阶段确认**：`mcp_apply_job` 生成动作确认单 → 用户确认 → `mcp_apply_confirm` 执行
+- **纯模拟点击**：真实 Chrome 里 DOM 搜索定位（按文字，不用 Runtime）→ `Input` 域受信任鼠标/键盘事件，全程人类节奏噪声；**不碰任何接口**
+- **反馈被动捕获**：BOSS 聊天会话 / 智联投递状态，只听网络响应零页面操作
+- **动作留痕**：全部写操作有审计日志；本地计数仅审计，平台服务端配额以页面真实反馈为准
 
-- **🔓 零门槛**：无需 API Key，无需注册，无需配置
-- **📦 开箱即用**：一行命令即可启动完整服务
-- **🔍 智能搜索**：支持按职位名称、城市、薪资范围等条件筛选
-- **🌐 多平台聚合**：自动从多个主流招聘网站获取数据
-- **📊 标准化输出**：统一的数据格式，便于大模型处理
-- **⚡ 实时更新**：保证职位信息的时效性
-- **🔧 可选增强**：支持 API Key 解锁额外功能（完全可选）
+### 📡 职位增量监控
+- `mcp_watch_check`：二次确认去噪（新职位需连续两次检查都在场才报告），稳定主键 diff（URL 去追踪参数）
+- 配合 agent 定时任务（1–2 小时一次）主动播报新机会
 
-## 📦 安装方式
+### 📄 本地定制简历
+- `mcp_my_profile` 本地主档案（永不上传）+ 目标职位 JD → agent 本地生成定制简历文件
+- 跨平台简历同步的解法：不让平台替你存，本地按职位生成
 
-### 🚀 即时运行（推荐）
+## 🚀 快速开始
 
-**无需安装，无需配置，立即使用：**
-
-```bash
-# 一行命令，立即启动
-npx -y mcp-jobs
-```
-
-### 🔧 全局安装（可选）
-
-如果您需要频繁使用：
-
-```bash
-# 全局安装
-npm install -g mcp-jobs
-
-# 直接运行
-mcp-jobs
-```
-
-### 📁 项目内安装（可选）
+### 安装运行
 
 ```bash
-# 安装到项目依赖中
-npm install mcp-jobs
-# 或使用 yarn
-yarn add mcp-jobs
-# 或使用 pnpm
-pnpm add mcp-jobs
+git clone https://github.com/mergedao/mcp-jobs.git
+cd mcp-jobs
+pnpm install && pnpm build
+npx playwright install chromium   # 浏览器内核（推荐同时安装本机 Chrome）
+# 要求 Node >= 22（CDP 依赖全局 WebSocket 与 Playwright 版本线）
 ```
 
-## 🎯 使用说明
-
-### 🚀 基础使用（零配置）
-
-**无需任何设置，立即开始：**
-
-```bash
-# 启动服务
-npx -y mcp-jobs
-
-# 服务将自动提供以下功能：
-# ✅ 职位搜索
-# ✅ 职位详情获取
-# ✅ 多平台数据聚合
-# ✅ 标准化数据输出
-```
-
-**就是这么简单！** 
-
-### 🔧 高级配置（完全可选）
-
-如果您需要额外的增强功能，可以选择性配置以下参数：
-
-```bash
-# 可选：复制配置模板
-cp .env.example .env
-
-# 可选：编辑配置文件，取消注释您需要的功能
-# USERNAME=your_username            # 可选：基础认证
-# PASSWORD=your_password            # 可选：基础认证
-
-# 可选：爬虫配置
-# CRAWLER_HEADLESS=true             # 可选：无头模式 (调试时可设为 false)
-# CRAWLER_TIMEOUT=30000             # 可选：页面超时时间 (毫秒)
-# CRAWLER_VIEWPORT_WIDTH=1280       # 可选：浏览器视窗宽度
-# CRAWLER_VIEWPORT_HEIGHT=800       # 可选：浏览器视窗高度
-# CRAWLER_DEBUG=false               # 可选：调试模式
-```
-
-#### 可选配置说明
-
-| 配置项 | 用途 | 是否必需 |
-|--------|------|----------|
-| `USERNAME` | 基础认证用户名 | ❌ 可选 |
-| `PASSWORD` | 基础认证密码 | ❌ 可选 |
-| `CRAWLER_HEADLESS` | 浏览器无头模式 (true/false) | ❌ 可选 |
-| `CRAWLER_TIMEOUT` | 页面超时时间 (毫秒) | ❌ 可选 |
-| `CRAWLER_VIEWPORT_WIDTH` | 浏览器视窗宽度 | ❌ 可选 |
-| `CRAWLER_VIEWPORT_HEIGHT` | 浏览器视窗高度 | ❌ 可选 |
-| `CRAWLER_DEBUG` | 调试模式 (true/false) | ❌ 可选 |
-
-> 💡 **重要提示**：所有配置都是**完全可选的**。服务在没有任何配置的情况下提供完整的核心功能。
-
-## 🤖 AI 客户端配置
-
-### 🚀 Cursor 配置（零配置）
-
-#### 最简配置（推荐）
-
-1. 打开 Cursor 设置
-2. 进入 Features > MCP Servers
-3. 点击 "+ Add New MCP Server"
-4. 输入以下信息：
-   - **Name**: `mcp-jobs`
-   - **Type**: `command`
-   - **Command**: `npx -y mcp-jobs`
-
-
-
-#### JSON 配置方式
-
-**基础配置（开箱即用）：**
+### MCP 客户端配置
 
 ```json
 {
   "mcpServers": {
     "mcp-jobs": {
-      "command": "npx",
-      "args": ["-y", "mcp-jobs"]
+      "command": "node",
+      "args": ["/path/to/mcp-jobs/dist/mcp.js"]
     }
   }
 }
 ```
 
-**高级配置（可选增强）：**
+### 首次登录（BOSS / 智联需要）
 
-```json
-{
-  "mcpServers": {
-    "mcp-jobs": {
-      "command": "npx",
-      "args": ["-y", "mcp-jobs"],
-      "env": {
-        "USERNAME": "your-username",
-        "PASSWORD": "your-password"
-      }
-    }
-  }
-}
-```
+搜索返回 `login_required` 时，调用 `mcp_platform_login`：工具会自动拉起统一 Chrome、
+打开登录页并置前，你扫码/验证码登录后 cookie 静默检测自动确认，一次登录长期有效。
 
-> 💡 **提示**：推荐使用基础配置，已提供完整的职位搜索功能！
+## 🛠️ 工具列表（16 个）
 
-### 🤖 Claude Desktop 配置
+| 工具 | 说明 |
+|---|---|
+| `mcp_search_job` | 四平台搜索：关键词+城市+归一化筛选+多页翻页，逐源状态上报 |
+| `mcp_job_detail` | 单职位详情 |
+| `mcp_platform_login` | 打开登录页（自动置前）并等待人工完成 |
+| `mcp_login_confirmed` | 人工确认登录记录（无可靠 cookie 特征的平台） |
+| `mcp_profile_status` | 各平台登录态 / cookie 过期时间感知 |
+| `mcp_apply_job` | 投递/打招呼第一阶段：生成确认单（不执行） |
+| `mcp_apply_confirm` | 第二阶段：用户确认后执行模拟点击 |
+| `mcp_check_feedback` | 投递/沟通反馈（被动捕获，只读） |
+| `mcp_actions_log` | 写操作审计日志 |
+| `mcp_prepare_application` | 沟通草稿 + 官方投递入口 |
+| `mcp_my_profile` | 本地主简历档案（get/set） |
+| `mcp_watch_check` | 职位增量监控（二次确认去噪） |
+| `mcp_watch_reset` | 重置监控基线 |
+| `mcp_application_list` | 51job/猎聘投递台账（跨重启持久） |
 
-**零配置设置：**
-
-1. 打开 Claude Desktop
-2. 点击左下角 Settings 图标
-3. 选择 "MCP Servers" 选项
-4. 点击 "Add New Server"
-5. 输入以下信息：
-   - **Name**: `mcp-jobs`
-   - **Type**: `command`
-   - **Command**: `npx -y mcp-jobs`
-   - **Environment Variables**: 留空（无需任何变量）
-
-**就这样！** 无需 API Key，立即可用。
-
-### 🚀 Windsurf 配置
-
-**基础配置（零设置）：**
-
-```json
-{
-  "mcpServers": {
-    "mcp-jobs": {
-      "command": "npx",
-      "args": ["-y", "mcp-jobs"]
-    }
-  }
-}
-```
-
-### 🚀 Cline 配置
-
-**基础配置（零设置）：**
-
-```yaml
-mcp:
-  servers:
-    mcp-jobs:
-      command: npx
-      args: ["-y", "mcp-jobs"]
-```
-
-
-## 🔧 高级配置（完全可选）
-
-> ⚠️ **重要提示**：以下所有配置都是**完全可选的**！服务在无任何配置的情况下即可提供完整功能。
-
-如果您需要自定义服务行为，可以选择性配置以下环境变量：
+## ⚙️ 配置（全部可选）
 
 ```bash
-# 可选：MCP API 密钥（用于解锁高级功能）
-# 可选：基础认证
-# USERNAME=your-username
-# PASSWORD=your-password
-
-# 可选：自定义 MCP 服务地址
+# MCP_JOBS_PROFILE_DIR=~/.mcp-jobs/profile   # 统一 profile 目录
+# MCP_JOBS_CDP_PORT=9223                     # 托管 Chrome 调试端口
+# MCP_JOBS_CHROME_PATH=...                   # Chrome 路径
+# MCP_JOBS_PROFILE_POLL_MS=600000            # 状态感知自检周期
+# MCP_JOBS_TIMEOUT_MS=25000                  # 搜索超时（硬上限 45000）
+# MCP_JOBS_DISABLE_PLATFORM_APIS=1           # 纯公开模式（禁 API 层）
+# BOSS_CDP_URL=http://127.0.0.1:9222         # 用户自管 Chrome（可选）
 ```
 
-> 💡 **再次提醒**：无需任何配置即可使用完整的职位搜索功能！
+## 🏗️ 架构
 
-## 🎯 立即开始使用
-
-配置完成后（只需一行命令！），您就可以通过自然语言向 AI 助手描述职位搜索需求：
-
-### 💬 使用示例
-
-**直接搜索职位：**
-- "搜索上海地区的前端开发工程师职位"
-- "查找北京的数据分析师岗位，要求 3 年以上经验"
-- "找出杭州地区薪资最高的产品经理职位"
-
-**获取职位详情：**
-- "获取这个职位的详细信息：[职位链接]"
-- "分析这个岗位的要求和薪资情况"
-
-**智能分析：**
-- "比较不同城市的同类职位薪资水平"
-- "总结当前市场上热门的技能要求"
-
-> 🚀 **零门槛体验**：无需学习复杂的 API 调用，直接用自然语言即可获得专业的职位搜索服务！
-
-大模型会自动调用 mcp-jobs 服务获取相关信息并为您展示结果。
-
-## 🔧 调试和开发
-
-### 🐛 调试模式
-
-如果您需要调试爬虫行为或开发新功能，可以启用调试模式：
-
-```bash
-# 启用可视化浏览器窗口（非无头模式）
-CRAWLER_HEADLESS=false npx -y mcp-jobs
-
-# 启用调试日志
-CRAWLER_DEBUG=true npx -y mcp-jobs
-
-# 组合使用
-CRAWLER_HEADLESS=false CRAWLER_DEBUG=true npx -y mcp-jobs
+```
+src/
+├── core/                  # 核心设施
+│   ├── cdp.ts             # 裸 CDP 会话（Network/Page/Storage/DOM/Input 最小域）
+│   ├── browser.ts         # 托管 Chrome（单 profile 单端口）
+│   ├── login.ts           # 四平台登录流（登录页置前 + cookie 静默检测）
+│   ├── profileState.ts    # 登录态感知 + 持久化基线
+│   ├── watch.ts           # 增量监控（二次确认去噪）
+│   ├── actionsLog.ts      # 写操作审计
+│   ├── pendingActions.ts  # 两阶段确认闸门
+│   └── feedback.ts        # 反馈被动捕获
+├── platforms/             # 每平台一个文件：搜索 S1 + 写操作
+│   ├── zhipin.ts / zhipinActions.ts
+│   ├── zhaopin.ts / zhaopinActions.ts
+│   ├── liepin.ts / job51.ts
+│   ├── harvest.ts         # 防御式字段收割
+│   ├── filters.ts         # 归一化筛选（原生码映射 + 客户端过滤）
+│   └── registry.ts        # 策略注册表
+├── config/                # 站点配置 / 城市码 / 链接白名单
+├── services/              # 公开页抓取 / 投递草稿 / 存储 / 请求预算
+└── mcp.ts                 # MCP 工具层（16 工具）
+skill/SKILL.md             # agent 操作指南
+test/                      # 单元 + stdio e2e
 ```
 
-### ⚙️ 自定义浏览器配置
-
-```bash
-# 自定义视窗大小
-CRAWLER_VIEWPORT_WIDTH=1920 CRAWLER_VIEWPORT_HEIGHT=1080 npx -y mcp-jobs
-
-# 增加超时时间（适用于慢速网络）
-CRAWLER_TIMEOUT=60000 npx -y mcp-jobs
-
-# 自定义用户代理
-CRAWLER_USER_AGENT="Custom Bot 1.0" npx -y mcp-jobs
-```
-
-### 📝 配置优先级
-
-配置的优先级从高到低：
-1. **站点特定配置** - 在 `crawlerConfig.ts` 中为特定网站设置的 `browserConfig`
-2. **环境变量** - 通过 `CRAWLER_*` 环境变量设置
-3. **默认配置** - 系统默认值
-
-## 🌟 为什么选择 MCP Jobs？
-
-### ✅ **真正的零门槛**
-- 🚫 **无需注册账号** - 不用填写任何个人信息
-- 🚫 **无需复杂配置** - 一行命令即可启动
-- 🚫 **无需学习文档** - 直接用自然语言交互
-
-### ⚡ **立即可用**
-- 📦 开箱即用，无需任何准备工作
-- 🔍 完整的职位搜索功能
-- 🌐 多平台数据聚合
-- 📊 标准化数据输出
-
-### 🛡️ **可靠稳定**
-- 🔄 自动重试机制
-- ⚠️ 优雅的错误处理
-- 📈 实时数据更新
-- 🔧 可选的高级功能
+新增平台 = 新增一个 `platforms/xxx.ts` + 注册表加一行。
 
 ## 📋 使用须知
 
-1. **完全免费** - 核心功能无需任何费用
-2. **遵守规范** - 请遵守各招聘平台的使用协议
-3. **合理使用** - 建议控制请求频率，避免过度访问
-4. **系统要求** - Node.js >= 16.0.0
+- 本项目只抓取**公开职位字段**；登录态仅用于用户本人账号的搜索增强
+- 遇验证码 / 登录墙 / 风控码一律**停手交人工**，不做任何绕过验证码的自动化
+- 不采集简历、联系方式等个人隐私数据；投递/打招呼需用户逐次确认
+- 请遵守目标平台用户协议与当地法律法规，控制频率，商业使用自行评估合规风险
 
-## 开源协议
+## License
 
-[MIT License](LICENSE)
+[ISC](LICENSE) —— 基于 [diverseforest/mcp-jobs](https://github.com/diverseforest/mcp-jobs) 的 fork 深度改造。
 
-## 获取帮助
+## Acknowledgments
 
-如果您在使用过程中遇到任何问题，请通过以下方式获取帮助：
+- 四平台反爬机制与路线依据：本仓库 `job-crawler-research/` 调研（BOSS-Claw / boss-zhipin-scraper / trawl / job51-cli 等开源实证）
+- [Model Context Protocol](https://modelcontextprotocol.io)
 
-- 提交 [GitHub Issue](https://github.com/mergedao/mcp-jobs/issues)
+---
 
-[npm-image]: https://img.shields.io/npm/v/mcp-jobs.svg
-[npm-url]: https://npmjs.org/package/mcp-jobs
-[node-version-image]: https://img.shields.io/node/v/mcp-jobs.svg
-[node-version-url]: https://nodejs.org/download/
-[license-image]: https://img.shields.io/npm/l/mcp-jobs.svg
-[license-url]: LICENSE
+<div align="center">
+
+# English
+
+**All-in-one job search MCP for BOSS Zhipin / Liepin / 51job / Zhaopin (China's four major hiring platforms).**
+
+One MCP server that aggregates all four platforms with **normalized search filters, multi-page
+pagination, login-state awareness, semi-automatic apply (two-phase confirmation + simulated
+clicks on a real Chrome), incremental job monitoring, and locally-generated tailored resumes.**
+
+## Why
+
+China's job platforms have strong anti-bot stacks (Alibaba WAF, RiverSecurity, per-visit
+security tokens, font obfuscation). Raw API calls get flagged within minutes. This project
+converges on what active open-source projects have proven: **drive a real Chrome with the
+real user fingerprint, listen passively over minimal CDP domains (never enable Runtime),
+let the site's own security JS issue credentials, and never touch private endpoints.**
+
+## Highlights
+
+- **Normalized search** — salary / experience / education / job type mapped to native filter
+  codes where proven (BOSS, Liepin), client-side filtering everywhere else; `maxPages`
+  pagination with humanlike inter-page jitter (BOSS 12–22s red line)
+- **Per-platform optimal channel** — raw-CDP passive capture (BOSS), SPA passive capture
+  (Liepin), HMAC-signed direct API + WAF solving (51job), SSR document extraction (Zhaopin);
+  automatic fallback to public-page/DOM layer
+- **One unified profile** — a single managed Chrome window holds all platform login states;
+  login pages auto-open and focus only when needed; silent cookie polling confirms completion
+- **Semi-automatic apply** — two-phase confirmation, trusted input events via raw CDP
+  `Input` domain, human-ratio noise, full audit log; feedback read passively (never write)
+- **Profile awareness** — passive self-check persisted to disk; `mcp_profile_status` reports
+  per-platform login state and cookie expiry
+- **Job monitoring** — `mcp_watch_check` with two-strike confirmation to filter result-page churn
+
+## Quick Start
+
+```bash
+git clone https://github.com/mergedao/mcp-jobs.git && cd mcp-jobs
+pnpm install && pnpm build
+npx playwright install chromium
+# Requires Node >= 22 (global WebSocket + Playwright line)
+```
+
+```json
+{
+  "mcpServers": {
+    "mcp-jobs": { "command": "node", "args": ["/path/to/mcp-jobs/dist/mcp.js"] }
+  }
+}
+```
+
+See the Chinese section above for the full tool list, configuration, architecture,
+usage policy and the agent skill guide (`skill/SKILL.md`).
+
+## License
+
+[ISC](LICENSE) — forked and heavily extended from
+[diverseforest/mcp-jobs](https://github.com/diverseforest/mcp-jobs).
+
+</div>

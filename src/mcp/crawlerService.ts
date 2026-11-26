@@ -8,11 +8,10 @@ export class CrawlerService {
     this.crawler = new WebCrawler();
   }
 
-  async startCrawling(options: SiteConfig, params: Record<string, string> = { keyword: '' }): Promise<CrawlerData[] | null> {
+  async startCrawling(options: SiteConfig, params: Record<string, string> = { keyword: '' }, signal?: AbortSignal, budgetMs?: number): Promise<CrawlerData[] | null> {
     try {
       // const queryParams = params ? '?' + new URLSearchParams(params).toString() : '';
-      options.url = options.url + params?.keyword;
-      await this.crawler.crawl(options);
+      await this.crawler.crawl({ ...options, url: options.url + (params.keyword ?? '') }, signal, budgetMs);
       return this.crawler.getData(options.name) || [];
     } catch (error) {
       console.error('Error in crawler service:', error);

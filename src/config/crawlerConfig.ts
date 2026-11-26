@@ -1,4 +1,5 @@
 import { ElementHandle } from 'playwright';
+import { additionalDetailConfigs, publicPageConfigs } from './domesticPages';
 
 export interface CrawlerRule {
   selector: string;      // CSS 选择器
@@ -37,10 +38,14 @@ export interface SiteConfig {
   maxRequestsPerCrawl?: number;
   maxConcurrency?: number;
   timeout?: number;
+  parsePublicHtml?: (html: string) => Record<string, unknown>;
+  emptySelector?: string; // Explicit empty-state marker verified for this source.
   browserConfig?: BrowserConfig;  // 浏览器配置
 }
 
 export const crawlerConfigs: SiteConfig[] = [
+  ...publicPageConfigs,
+  ...additionalDetailConfigs,
   {
     url: 'https://www.liepin.com/zhaopin/',
     name: 'liepin',
@@ -282,7 +287,7 @@ export const crawlerConfigs: SiteConfig[] = [
   {
     url: '',
     name: 'liepin-detail',
-    urlPattern: '^https://www.liepin.com/job/.*$',
+    urlPattern: '^https://(?:www|m)\\.liepin\\.com/job/.*$',
     urlBuilder: (url, params, paramsConfig) => {
       return url;
     },
