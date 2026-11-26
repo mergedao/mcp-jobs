@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { officialJobLink } from '../config/jobLinks';
 import { profileDir } from './browser';
 
-export const TRACKED_PLATFORMS = ['51job', 'liepin'] as const;
+export const TRACKED_PLATFORMS = ['51job', 'liepin', 'zhipin', 'zhaopin'] as const;
 export const APPLICATION_STATUSES = ['submitted', 'viewed', 'interview', 'rejected', 'withdrawn', 'closed', 'unknown'] as const;
 export const SYNC_STATUSES = ['ok', 'login_required', 'session_expired', 'unavailable'] as const;
 
@@ -48,7 +48,7 @@ export function isTrackedPlatform(value: unknown): value is Platform {
 }
 
 function scopeOf(fields: Record<string, unknown>): Scope {
-  if (!isTrackedPlatform(fields.platform)) throw new Error('投递台账仅支持 51job 和猎聘');
+  if (!isTrackedPlatform(fields.platform)) throw new Error('投递台账仅支持 51job、猎聘、BOSS 直聘和智联');
   const accountId = text(fields.accountId, 'accountId', 64);
   if (!/^[a-z0-9_-]+$/i.test(accountId)) throw new Error('accountId 应为本地账号代号');
   return { platform: fields.platform, accountId };
@@ -57,12 +57,13 @@ function scopeOf(fields: Record<string, unknown>): Scope {
 function jobOf(platform: Platform, fields: Record<string, unknown>): Job {
   const url = officialJobLink(text(fields.url, 'url', 2048));
   if (!url) throw new Error('需要官方 HTTPS 职位链接');
-  const match = platform === 'liepin' && /^(?:www|m)\.liepin\.com$/.test(url.hostname)
-    // 搜索结果两种链接形态都接受（review 修复：/a/<hash>.shtml 与 /job/<id>.shtml 共用一套识别）
-    ? /^\/(?:job\/(\d+)|a\/([A-Za-z0-9]+))\.shtml$/.exec(url.pathname)
-    : platform === '51job' && /^(?:jobs|msearch)\.51job\.com$/.test(url.hostname)
-      ? /^\/(?:jobs\/)?[a-z0-9-]+\/(\d+)\.html$/i.exec(url.pathname)
-      : null;
+  const paths: Record<Platform, RegExp> = {
+    liepin: /^https:\/\/(?:www|m)\.liepin\.com\/(?:job\/(\d+)|a\/([A-Za-z0-9]+))\.shtml$/,
+    '51job': /^https:\/\/(?:jobs|msearch)\.51job\.com\/(?:jobs\/)?[a-z0-9-]+\/(\d+)\.html$/i,
+    zhipin: /^https:\/\/(?:www|m)\.zhipin\.com\/job_detail\/([A-Za-z0-9_-]+)\.html$/,
+    zhaopin: /^https:\/\/(?:www\.zhaopin\.com\/jobdetail|m\.zhaopin\.com\/jobs)\/([A-Za-z0-9]+)\.htm$/
+  };
+  const match = paths[platform].exec(url.origin + url.pathname);
   if (!match) throw new Error('职位链接与所选平台不匹配');
   url.search = '';
   url.hash = '';
@@ -162,7 +163,7 @@ export function prepareTrackedApplication(fields: Record<string, unknown>) {
     };
     const application: Application = { ...job, status: 'prepared', source: 'local', observedAt: new Date().toISOString(), resumeVersion };
     return {
-      result: { ...scope, status: 'manual_required', application, browserUrl: job.url, instruction: '请在官方页面核对职位和简历，提交后回填结果。' },
+      result: { ...scope, status: 'manual_required', application, browserUrl: job.url, instruction: '请在官方页面核对职位、简历或沟通文案，完成操作后回填结果。' },
       entry: { type: 'update', events: [{ type: 'application', application, changed: false }] }
     };
   });
@@ -171,10 +172,20 @@ export function prepareTrackedApplication(fields: Record<string, unknown>) {
 export function listApplications(fields: Record<string, unknown>) {
   const scope = scopeOf(fields);
   const { applications, sync } = project(loadLedger(ledgerPath(scope)));
+  const limit = fields.limit === undefined ? 100 : fields.limit;
+  const offset = fields.offset === undefined ? 0 : fields.offset;
+  if (typeof limit !== 'number' || !Number.isSafeInteger(limit) || limit < 1 || limit > 100 ||
+      typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0) {
+    throw new Error('limit 必须是 1 至 100 的整数，offset 必须是非负整数');
+  }
+  const sorted = [...applications.values()].sort((a, b) => b.observedAt.localeCompare(a.observedAt) || a.jobId.localeCompare(b.jobId));
+  const page = sorted.slice(offset, offset + limit);
   return {
     ...scope,
     sync: sync ?? { status: 'not_synced' },
-    applications: [...applications.values()].sort((a, b) => b.observedAt.localeCompare(a.observedAt)).slice(0, 100)
+    applications: page,
+    total: sorted.length,
+    nextOffset: offset + page.length < sorted.length ? offset + page.length : null
   };
 }
 
@@ -264,8 +275,8 @@ function feedbackWindow(entries: Entry[], cursor: number) {
     nextCursor: page[page.length - 1]?.revision ?? cursor,
     hasMore: updates.length > 10,
     events: page.flatMap(({ entry, revision }) => entry.events
-      .filter(event => event.type !== 'application' || event.changed)
-      .map(event => ({ ...event, revision })))
+      .flatMap((event, index) => event.type === 'application' && !event.changed ? []
+        : [{ ...event, revision, notificationId: `${revision}:${index}` }]))
   };
 }
 
@@ -275,12 +286,19 @@ export function checkTrackedFeedback(fields: Record<string, unknown>) {
   const entries = loadLedger(ledgerPath(scope));
   const { sync, cursors } = project(entries);
   const cursor = cursors.get(consumer) ?? 0;
+  const window = feedbackWindow(entries, cursor);
+  const status = window.events.length ? 'updates_available'
+    : window.hasMore ? 'more_available'
+    : sync?.status === 'ok' ? 'no_updates'
+    : sync?.status ?? 'not_synced';
   return {
     ...scope,
     consumer,
     cursor,
+    status,
+    source: 'user_reported',
     sync: sync ?? { status: 'not_synced' },
-    ...feedbackWindow(entries, cursor)
+    ...window
   };
 }
 

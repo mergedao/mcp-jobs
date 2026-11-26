@@ -1,5 +1,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { mkdtemp, rm } = require('node:fs/promises');
+const { tmpdir } = require('node:os');
 const test = require('node:test');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
@@ -9,6 +11,7 @@ const fixture = `
   const playwright = require.resolve('playwright');
   require(playwright);
   process.env.MCP_JOBS_TIMEOUT_MS = '300';
+  process.env.MCP_JOBS_PROFILE_POLL_MS = '0';
   process.env.MCP_JOBS_DISABLE_PLATFORM_APIS = '1'; // e2e 只测公开页/DOM 层，不触真实浏览器与账号
   let hangingBrowserClosed = false;
   globalThis.fetch = async (url, options) => {
@@ -42,7 +45,7 @@ const fixture = `
                 let site;
                 const card = {
                   innerHTML: async () => '<div>前端开发工程师</div>',
-                  $eval: async selector => selector === 'a' ? '/job/example.shtml' : texts[selector] || '',
+                  $eval: async selector => selector === 'a' ? '/a/abc123.shtml' : texts[selector] || '',
                   $$eval: async () => [],
                   textContent: async () => '前端开发工程师'
                 };
@@ -81,7 +84,9 @@ const fixture = `
   require('./dist/mcp');
 `;
 
-test('MCP preserves partial results and continues from a listed job to details and application preparation', { timeout: 10000 }, async () => {
+test('MCP preserves partial results and continues from a listed job to details and application preparation', { timeout: 10000 }, async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mcp-jobs-stdio-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
   const root = path.join(__dirname, '..');
   const client = new Client({ name: 'stdio-regression', version: '1.0.0' });
   const errors = [];
@@ -91,6 +96,7 @@ test('MCP preserves partial results and continues from a listed job to details a
       command: process.execPath,
       args: ['-e', fixture],
       cwd: root,
+      env: { MCP_JOBS_PROFILE_DIR: path.join(dir, 'profile') },
       stderr: 'ignore'
     }));
     const call = async (name, args) => {
@@ -104,7 +110,7 @@ test('MCP preserves partial results and continues from a listed job to details a
     assert.equal(search.result.jobs.length, 2);
     const [job] = search.result.jobs;
     assert.equal(job.title, '前端开发工程师');
-    assert.equal(job.jobDetail, 'https://www.liepin.com/job/example.shtml');
+    assert.equal(job.jobDetail, 'https://www.liepin.com/a/abc123.shtml');
     assert.deepEqual(search.result.metadata.sources.slice(0, 2).map(s => s.status), ['login_required', 'ok']);
     assert.equal(search.result.metadata.sources[0].browserUrl, 'https://www.zhipin.com/');
     assert.equal(search.result.metadata.sources[3].status, 'access_restricted');
@@ -115,6 +121,9 @@ test('MCP preserves partial results and continues from a listed job to details a
     assert.equal(draft.result.status, 'draft_ready');
     assert.match(draft.result.communicationDraft, /React/);
     assert.equal(draft.result.nextAction.url, job.jobDetail);
+    const prepared = await call('mcp_apply_job', { platform: 'liepin', accountId: 'fixture', url: job.jobDetail });
+    assert.equal(prepared.result.status, 'manual_required');
+    assert.equal(prepared.result.browserUrl, job.jobDetail);
 
     const partial = await call('mcp_search_job', { keyword: '慢' });
     assert.equal(partial.isError, false);

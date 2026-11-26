@@ -3,7 +3,6 @@ const test = require('node:test');
 
 const { harvestJobs } = require('../dist/platforms/harvest');
 const { classifyLiepinError } = require('../dist/platforms/liepin');
-const { solveAcwScV3 } = require('../dist/platforms/job51');
 const { platformApiSearch } = require('../dist/platforms/registry');
 
 test('harvestJobs 走通 51job search-pc 嵌套包络', () => {
@@ -92,13 +91,4 @@ test('classifyLiepinError 映射猎聘错误码', () => {
 test('platformApiSearch 无关键词直接跳过', async () => {
   assert.equal(await platformApiSearch('51job', {}), null);
   assert.equal(await platformApiSearch('liepin', { keyword: '   ' }), null);
-});
-
-test('solveAcwScV3 WAF 挑战求解确定性', () => {
-  const arg1 = 'A4AC5C7ED1C9B2F8E3D4A5B6C7D8E9F001122334455';
-  const first = solveAcwScV3(arg1);
-  assert.equal(first.length, 42, '输出应为 21 字节 hex（42 字符）');
-  assert.equal(first, solveAcwScV3(arg1), '同一 arg1 求解结果必须确定');
-  assert.notEqual(first, solveAcwScV3('B4AC5C7ED1C9B2F8E3D4A5B6C7D8E9F001122334455'), '不同 arg1 结果不同');
-  assert.equal(solveAcwScV3('TOOSHORT'), '', '过短输入拒绝求解');
 });

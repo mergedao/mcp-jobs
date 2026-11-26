@@ -1,6 +1,5 @@
 import { searchZhipin } from './zhipin';
 import { searchLiepin } from './liepin';
-import { search51job } from './job51';
 import { searchZhaopin } from './zhaopin';
 import { rawCloseAll, resetBoundPages } from '../core/cdp';
 import type { JobPlatform } from '../config/urlConfig';
@@ -14,14 +13,15 @@ import type { RawFilters } from './filters';
 
 type SearchFn = (keyword: string, city: string | undefined, page: number, signal?: AbortSignal, timeoutMs?: number, filters?: RawFilters) => Promise<ApiSearchResult | null>;
 
-export const PLATFORM_SEARCH: Record<JobPlatform, SearchFn> = {
+export const PLATFORM_SEARCH: Partial<Record<JobPlatform, SearchFn>> = {
   zhipin: searchZhipin,
   liepin: (keyword, _city, page, signal, timeoutMs, filters) => searchLiepin(keyword, page, signal, timeoutMs, filters),
-  '51job': (keyword, city, page, signal, timeoutMs, filters) => search51job(keyword, city, page, signal, timeoutMs, filters),
   zhaopin: searchZhaopin
 };
 
-export function platformApiSearch(
+const busy = new Set<JobPlatform>();
+
+export async function platformApiSearch(
   platform: JobPlatform,
   params: { keyword?: string; city?: string; page?: number; filters?: RawFilters },
   signal?: AbortSignal,
@@ -32,15 +32,22 @@ export function platformApiSearch(
   if (process.env.MCP_JOBS_DISABLE_PLATFORM_APIS === '1') return Promise.resolve(null);
   const keyword = (params.keyword ?? '').trim();
   if (!keyword) return Promise.resolve(null);
-  const page = params.page && params.page >= 1 ? Math.min(params.page, 10) : 1;
+  const page = params.page && params.page >= 1 ? params.page : 1;
+  if (page > 10) return null;
   const fn = PLATFORM_SEARCH[platform];
   if (!fn) return Promise.resolve(null);
-  return fn(keyword, params.city, page, signal, timeoutMs, params.filters).catch(() => null);
+  if (busy.has(platform)) return null;
+  busy.add(platform);
+  try {
+    return await fn(keyword, params.city, page, signal, timeoutMs, params.filters);
+  } catch {
+    return null;
+  } finally {
+    busy.delete(platform);
+  }
 }
 
 export async function closePlatformApis(): Promise<void> {
   rawCloseAll();
   resetBoundPages();
-  const { closeSharedBrowser } = await import('../core/browser');
-  await closeSharedBrowser();
 }

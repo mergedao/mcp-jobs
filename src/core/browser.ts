@@ -2,7 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
-import { chromium, Browser } from 'playwright';
 import { httpJson, jitterPause, portOpen, rawConnect, rawSend, raceAbort, hostOf } from './cdp';
 
 /**
@@ -43,7 +42,7 @@ export async function ensureManagedChrome(preferredUrl = 'about:blank'): Promise
   if (await portOpen(cdpUrl)) return true;
   if (!fs.existsSync(chromeBinary())) return false;
   const dir = profileDir();
-  migrateLegacyProfiles(dir);
+  if (!process.env.MCP_JOBS_PROFILE_DIR) migrateLegacyProfiles(dir);
   fs.mkdirSync(dir, { recursive: true });
   const args = [
     `--remote-debugging-port=${new URL(cdpUrl).port}`,
@@ -55,10 +54,12 @@ export async function ensureManagedChrome(preferredUrl = 'about:blank'): Promise
     preferredUrl
   ];
   const child = spawn(chromeBinary(), args, { detached: true, stdio: 'ignore' });
+  let launchFailed = false;
+  child.once('error', () => { launchFailed = true; });
   child.unref();
   // 等 CDP 就绪
   const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
+  while (!launchFailed && Date.now() < deadline) {
     if (await portOpen(cdpUrl)) return true;
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
@@ -89,65 +90,4 @@ export async function openPage(cdpUrl: string, url: string, opts?: { activate?: 
   if (!tab?.id) return null;
   if (opts?.activate) await activateTab(cdpUrl, tab.id);
   return tab.id as string;
-}
-
-/* ---------- 供猎聘/51job 使用的 Playwright 共享浏览器（页面内 fetch，需完整浏览器上下文） ---------- */
-
-let browserPromise: Promise<Browser> | null = null;
-
-export async function closeSharedBrowser(): Promise<void> {
-  if (!browserPromise) return;
-  const browser = await browserPromise.catch(() => null);
-  browserPromise = null;
-  if (browser) await browser.close().catch(() => {});
-}
-
-export async function sharedBrowser(): Promise<Browser> {
-  if (!browserPromise) {
-    browserPromise = launchBestBrowser().catch(error => {
-      browserPromise = null;
-      throw error;
-    });
-  }
-  return browserPromise;
-}
-
-/** 优先本机真实 Chrome（指纹先验最强），失败落回 Playwright 内置 Chromium。 */
-async function launchBestBrowser(): Promise<Browser> {
-  const headless = process.env.CRAWLER_HEADLESS !== 'false';
-  try {
-    return await chromium.launch({ headless, channel: 'chrome' });
-  } catch {
-    return chromium.launch({ headless });
-  }
-}
-
-/** 页面内同源 fetch：浏览器先打开 origin 过掉 WAF/环境挑战，再用页面自己的 TLS/Cookie/源调 API。 */
-export async function inPageFetch(
-  originUrl: string,
-  apiUrl: string,
-  init: { method?: string; headers?: Record<string, string>; body?: string },
-  signal?: AbortSignal,
-  timeoutMs = 15000
-): Promise<unknown> {
-  const browser = await sharedBrowser();
-  const context = await browser.newContext({ locale: 'zh-CN' }).catch(() => null);
-  if (!context) return null;
-  try {
-    const pageHandle = await context.newPage();
-    await jitterPause(400, 1200); // 导航噪声
-    await raceAbort(pageHandle.goto(originUrl, { waitUntil: 'domcontentloaded', timeout: Math.min(timeoutMs - 2000, 10000) }), signal);
-    // WAF/风控 JS 需要在页面里跑一小段才算通过
-    await jitterPause(900, 1800);
-    return await raceAbort(
-      pageHandle.evaluate(async ({ url, init }: { url: string; init: { method?: string; headers?: Record<string, string>; body?: string } }) => {
-        const response = await fetch(url, init);
-        const text = await response.text();
-        try { return JSON.parse(text); } catch { return null; }
-      }, { url: apiUrl, init }),
-      signal
-    );
-  } finally {
-    await context.close().catch(() => {});
-  }
 }

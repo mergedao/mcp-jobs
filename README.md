@@ -1,220 +1,83 @@
-<div align="center">
-
 # mcp-jobs
 
-**四平台职位聚合 MCP · All-in-One Job Search MCP**
+通过 MCP 聚合 BOSS 直聘、猎聘、前程无忧（51job）和智联招聘。支持搜岗、职位详情、原站投递和沟通交接、本地申请台账，以及增量通知。
 
-一个 MCP Server，聚合 **BOSS直聘 / 猎聘 / 前程无忧(51job) / 智联招聘** 四大招聘平台——
-归一化搜索筛选、多页翻页、登录态感知、半自动投递、职位增量监控、本地定制简历。
+## 安装
 
-[中文](#-特性) · [English](#english)
-
-</div>
-
----
-
-## ✨ 特性
-
-### 🔍 归一化搜索
-- **四平台并发搜索**：一次调用聚合全部平台结果，逐源报告状态与覆盖率
-- **归一化筛选**：薪资 / 工作年限 / 学历 / 职位类型，统一语义——有原生筛选码的平台走原生筛选（BOSS `experience`/`salary`、猎聘 `salaryCode`/`workYearCode`），其余平台客户端过滤保证语义一致
-- **多页翻页**：`maxPages` 串行翻页聚合去重，页间内置人类节奏噪声（BOSS 12–22s 红线）
-
-### 🧬 反检测取数（每平台一条最优解）
-| 平台 | S1 通道 | 说明 |
-|---|---|---|
-| BOSS直聘 | 裸 CDP 被动旁听 `joblist.json` | 薪资明文；`__zp_stoken__` 由真实浏览器现场换发，不逆向 |
-| 猎聘 | SPA 被动旁听 `pc-search-job` | 让页面自己发请求（自带全套风控头/token） |
-| 51job | HMAC-SHA256 签名直连 + WAF 求解 | 免登录；新版 VM WAF 由真 Chrome 现场过 |
-| 智联 | SSR 文档捕获 | 职位列表内嵌于 `__INITIAL_STATE__`，零 JS 执行 |
-
-核心原则：**真实 Chrome + 最小 CDP 域（Network/Page/Storage，绝不启用 Runtime）+ 被动旁听**——
-不注入、不调用私有接口、无自动化特征可探测。S1 失败自动落回 S2 公开页/DOM，永不静默失败。
-
-### 🪪 统一登录与状态感知
-- **单 profile 单窗口**：一个 Chrome 管全部平台登录态，每平台至多一个标签，多账号才启用多 profile
-- **登录直达**：需要登录时自动打开登录页并置前（唯一抢焦点的时刻），cookie 静默轮询检测，登录后自动继续
-- **状态感知**：被动自检落盘，`mcp_profile_status` 随时读取登录态与 cookie 过期时间；持久化 cookie 基线让检测跨时间可靠
-
-### 📬 半自动投递与反馈
-- **两阶段确认**：`mcp_apply_job` 生成动作确认单 → 用户确认 → `mcp_apply_confirm` 执行
-- **纯模拟点击**：真实 Chrome 里 DOM 搜索定位（按文字，不用 Runtime）→ `Input` 域受信任鼠标/键盘事件，全程人类节奏噪声；**不碰任何接口**
-- **反馈被动捕获**：BOSS 聊天会话 / 智联投递状态，只听网络响应零页面操作
-- **动作留痕**：全部写操作有审计日志；本地计数仅审计，平台服务端配额以页面真实反馈为准
-
-### 📡 职位增量监控
-- `mcp_watch_check`：二次确认去噪（新职位需连续两次检查都在场才报告），稳定主键 diff（URL 去追踪参数）
-- 配合 agent 定时任务（1–2 小时一次）主动播报新机会
-
-### 📄 本地定制简历
-- `mcp_my_profile` 本地主档案（永不上传）+ 目标职位 JD → agent 本地生成定制简历文件
-- 跨平台简历同步的解法：不让平台替你存，本地按职位生成
-
-## 🚀 快速开始
-
-### 安装运行
+需要 Node.js 22 或以上。源码版本的启动方式如下。
 
 ```bash
-git clone https://github.com/mergedao/mcp-jobs.git
-cd mcp-jobs
-pnpm install && pnpm build
-npx playwright install chromium   # 浏览器内核（推荐同时安装本机 Chrome）
-# 要求 Node >= 22（CDP 依赖全局 WebSocket 与 Playwright 版本线）
+pnpm install --frozen-lockfile
+pnpm build
+pnpm exec playwright install chromium
 ```
 
-### MCP 客户端配置
+在 MCP 客户端配置本地 stdio 服务。
 
 ```json
 {
   "mcpServers": {
     "mcp-jobs": {
       "command": "node",
-      "args": ["/path/to/mcp-jobs/dist/mcp.js"]
+      "args": ["/absolute/path/to/mcp-jobs/dist/mcp.js"],
+      "env": { "MCP_JOBS_PROFILE_DIR": "/absolute/path/to/personal/profile" }
     }
   }
 }
 ```
 
-### 首次登录（BOSS / 智联需要）
+## 搜索与登录
 
-搜索返回 `login_required` 时，调用 `mcp_platform_login`：工具会自动拉起统一 Chrome、
-打开登录页并置前，你扫码/验证码登录后 cookie 静默检测自动确认，一次登录长期有效。
+- `mcp_search_job` 返回职位及每个平台的状态和覆盖范围。一个来源失败时，其他来源已完成的结果仍可用。看到 `partial: true` 时，本次结果只覆盖已完成的页。
+- 51job 使用公开页面样本。样本只支持适配器声明的条件，覆盖范围由 `coverage: public_page` 标记。完整职位仍以原站为准。
+- `mcp_job_detail` 接受搜索输出的官方链接。遇到登录、访问验证或限流时，查看逐源状态以及返回的原站链接。验证由用户在原站处理。
+- `mcp_platform_login` 打开官方登录页或返回其链接，随后交回控制权。登录完成后用 `mcp_profile_status` 查询状态。用户口头确认通过 `mcp_login_confirmed` 记录，当前会话未经验证时显示 `unknown`。
 
-## 🛠️ 工具列表（16 个）
+## 投递、沟通和反馈
 
-| 工具 | 说明 |
-|---|---|
-| `mcp_search_job` | 四平台搜索：关键词+城市+归一化筛选+多页翻页，逐源状态上报 |
-| `mcp_job_detail` | 单职位详情 |
-| `mcp_platform_login` | 打开登录页（自动置前）并等待人工完成 |
-| `mcp_login_confirmed` | 人工确认登录记录（无可靠 cookie 特征的平台） |
-| `mcp_profile_status` | 各平台登录态 / cookie 过期时间感知 |
-| `mcp_apply_job` | 投递/打招呼第一阶段：生成确认单（不执行） |
-| `mcp_apply_confirm` | 第二阶段：用户确认后执行模拟点击 |
-| `mcp_check_feedback` | 投递/沟通反馈（被动捕获，只读） |
-| `mcp_actions_log` | 写操作审计日志 |
-| `mcp_prepare_application` | 沟通草稿 + 官方投递入口 |
-| `mcp_my_profile` | 本地主简历档案（get/set） |
-| `mcp_watch_check` | 职位增量监控（二次确认去噪） |
-| `mcp_watch_reset` | 重置监控基线 |
-| `mcp_application_list` | 51job/猎聘投递台账（跨重启持久） |
+1. 用 `mcp_prepare_application` 生成沟通草稿，用 `mcp_apply_job` 按 `platform`、`accountId`、`url` 建档。账号代号用 `personal` 这类本地别名。
+2. 用户在返回的官方页面核对职位、简历、收件方和文案，亲自提交或发送。`prepared` 仅表示已建档。再次建档返回已有记录。
+3. 用户在原站核实结果后，用 `mcp_feedback_import` 回填投递状态，或用会话代号、消息代号和发生时间记录招聘方回复。同一条回复重复导入只记录一次。使用稳定的原站标识或本地代号，避免填入私信正文、手机号或凭证。
+4. 用 `mcp_application_list` 查台账，用 `mcp_check_feedback` 读取未确认动态。读取结果包含 `source: user_reported`。登录过期或来源不可用可单独回填，原有申请记录继续保留。
 
-## ⚙️ 配置（全部可选）
+四个平台当前都采用人工回填。原站新消息需要先经过回填才能进入提醒。历史自动操作记录仍可通过 `mcp_actions_log` 查询。简历档案单独通过 `mcp_my_profile` 管理，读取结果会交给调用它的 MCP 客户端。
 
-```bash
-# MCP_JOBS_PROFILE_DIR=~/.mcp-jobs/profile   # 统一 profile 目录
-# MCP_JOBS_CDP_PORT=9223                     # 托管 Chrome 调试端口
-# MCP_JOBS_CHROME_PATH=...                   # Chrome 路径
-# MCP_JOBS_PROFILE_POLL_MS=600000            # 状态感知自检周期
-# MCP_JOBS_TIMEOUT_MS=25000                  # 搜索超时（硬上限 45000）
-# MCP_JOBS_DISABLE_PLATFORM_APIS=1           # 纯公开模式（禁 API 层）
-# BOSS_CDP_URL=http://127.0.0.1:9222         # 用户自管 Chrome（可选）
-```
+## WorkBuddy 本地定时任务
 
-## 🏗️ 架构
-
-```
-src/
-├── core/                  # 核心设施
-│   ├── cdp.ts             # 裸 CDP 会话（Network/Page/Storage/DOM/Input 最小域）
-│   ├── browser.ts         # 托管 Chrome（单 profile 单端口）
-│   ├── login.ts           # 四平台登录流（登录页置前 + cookie 静默检测）
-│   ├── profileState.ts    # 登录态感知 + 持久化基线
-│   ├── watch.ts           # 增量监控（二次确认去噪）
-│   ├── actionsLog.ts      # 写操作审计
-│   ├── pendingActions.ts  # 两阶段确认闸门
-│   └── feedback.ts        # 反馈被动捕获
-├── platforms/             # 每平台一个文件：搜索 S1 + 写操作
-│   ├── zhipin.ts / zhipinActions.ts
-│   ├── zhaopin.ts / zhaopinActions.ts
-│   ├── liepin.ts / job51.ts
-│   ├── harvest.ts         # 防御式字段收割
-│   ├── filters.ts         # 归一化筛选（原生码映射 + 客户端过滤）
-│   └── registry.ts        # 策略注册表
-├── config/                # 站点配置 / 城市码 / 链接白名单
-├── services/              # 公开页抓取 / 投递草稿 / 存储 / 请求预算
-└── mcp.ts                 # MCP 工具层（16 工具）
-skill/SKILL.md             # agent 操作指南
-test/                      # 单元 + stdio e2e
-```
-
-新增平台 = 新增一个 `platforms/xxx.ts` + 注册表加一行。
-
-## 📋 使用须知
-
-- 本项目只抓取**公开职位字段**；登录态仅用于用户本人账号的搜索增强
-- 遇验证码 / 登录墙 / 风控码一律**停手交人工**，不做任何绕过验证码的自动化
-- 不采集简历、联系方式等个人隐私数据；投递/打招呼需用户逐次确认
-- 请遵守目标平台用户协议与当地法律法规，控制频率，商业使用自行评估合规风险
-
-## License
-
-[ISC](LICENSE) —— 基于 [diverseforest/mcp-jobs](https://github.com/diverseforest/mcp-jobs) 的 fork 深度改造。
-
-## Acknowledgments
-
-- 四平台反爬机制与路线依据：本仓库 `job-crawler-research/` 调研（BOSS-Claw / boss-zhipin-scraper / trawl / job51-cli 等开源实证）
-- [Model Context Protocol](https://modelcontextprotocol.io)
-
----
-
-<div align="center">
-
-# English
-
-**All-in-one job search MCP for BOSS Zhipin / Liepin / 51job / Zhaopin (China's four major hiring platforms).**
-
-One MCP server that aggregates all four platforms with **normalized search filters, multi-page
-pagination, login-state awareness, semi-automatic apply (two-phase confirmation + simulated
-clicks on a real Chrome), incremental job monitoring, and locally-generated tailored resumes.**
-
-## Why
-
-China's job platforms have strong anti-bot stacks (Alibaba WAF, RiverSecurity, per-visit
-security tokens, font obfuscation). Raw API calls get flagged within minutes. This project
-converges on what active open-source projects have proven: **drive a real Chrome with the
-real user fingerprint, listen passively over minimal CDP domains (never enable Runtime),
-let the site's own security JS issue credentials, and never touch private endpoints.**
-
-## Highlights
-
-- **Normalized search** — salary / experience / education / job type mapped to native filter
-  codes where proven (BOSS, Liepin), client-side filtering everywhere else; `maxPages`
-  pagination with humanlike inter-page jitter (BOSS 12–22s red line)
-- **Per-platform optimal channel** — raw-CDP passive capture (BOSS), SPA passive capture
-  (Liepin), HMAC-signed direct API + WAF solving (51job), SSR document extraction (Zhaopin);
-  automatic fallback to public-page/DOM layer
-- **One unified profile** — a single managed Chrome window holds all platform login states;
-  login pages auto-open and focus only when needed; silent cookie polling confirms completion
-- **Semi-automatic apply** — two-phase confirmation, trusted input events via raw CDP
-  `Input` domain, human-ratio noise, full audit log; feedback read passively (never write)
-- **Profile awareness** — passive self-check persisted to disk; `mcp_profile_status` reports
-  per-platform login state and cookie expiry
-- **Job monitoring** — `mcp_watch_check` with two-strike confirmation to filter result-page churn
-
-## Quick Start
-
-```bash
-git clone https://github.com/mergedao/mcp-jobs.git && cd mcp-jobs
-pnpm install && pnpm build
-npx playwright install chromium
-# Requires Node >= 22 (global WebSocket + Playwright line)
-```
+前台会话使用普通 MCP 配置。定时任务使用同一台机器和同一数据目录，将任务的 MCP 进程设为监控模式。
 
 ```json
 {
   "mcpServers": {
-    "mcp-jobs": { "command": "node", "args": ["/path/to/mcp-jobs/dist/mcp.js"] }
+    "mcp-jobs-monitor": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/mcp-jobs/dist/mcp.js"],
+      "env": {
+        "MCP_JOBS_PROFILE_DIR": "/absolute/path/to/personal/profile",
+        "MCP_JOBS_MONITOR_ONLY": "1",
+        "MCP_JOBS_PROFILE_POLL_MS": "0"
+      }
+    }
   }
 }
 ```
 
-See the Chinese section above for the full tool list, configuration, architecture,
-usage policy and the agent skill guide (`skill/SKILL.md`).
+- 为每个任务固定 `platform`、`accountId` 和 `consumer`。`mcp_check_feedback` 返回 `updates_available`、`more_available`、`no_updates`、`not_synced` 或来源状态。查看 `sync` 的状态和时间以判断记录新鲜度。
+- 展示或持久化本页动态后，用 `mcp_feedback_ack` 提交读取结果的 `cursor` 和 `nextCursor`，后者作为 `through`。确认后重启仍会从已保存的进度继续。确认前的重试可用平台、账号和 `notificationId` 去重。存在 `hasMore` 时继续读下一页。
+- 新职位监控用 `mcp_watch_check`，按平台建立基线。连续两次成功扫描出现的候选才报告。来源暂不可用时保留未过期候选，成功扫描缺席会淘汰候选。新职位会保留到 `mcp_watch_ack` 使用 `watchId` 和 `nextCursor` 确认交付。`mcp_watch_reset` 的平台列表应和原任务一致。升级后旧版聚合基线会在首次成功检查时按平台重建。
+- 本机浏览器和本地台账适用于 WorkBuddy **本地任务**。平台后台自动同步需要单独的授权数据来源。
+
+[连接器文档](https://open.workbuddy.cn/docs/connector) · [定时任务文档](https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Automation-Guide)
+
+## 配置与测试
+
+常用环境变量见 [`.env.example`](.env.example)。`pnpm test` 会构建并运行离线回归，使用临时目录、公开页面样本和 MCP stdio 客户端。
+
+## English
+
+Search BOSS Zhipin, Liepin, 51job, and Zhaopin with per-source status and partial results. Open the original site to submit an application or send a draft. Record verified application status and reply metadata in the local ledger. Scheduled clients can read and acknowledge imported events with a durable cursor. WorkBuddy local tasks can set `MCP_JOBS_MONITOR_ONLY=1`.
 
 ## License
 
-[ISC](LICENSE) — forked and heavily extended from
-[diverseforest/mcp-jobs](https://github.com/diverseforest/mcp-jobs).
-
-</div>
+[ISC](LICENSE). Based on [diverseforest/mcp-jobs](https://github.com/diverseforest/mcp-jobs).

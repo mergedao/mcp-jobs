@@ -268,7 +268,7 @@ export const crawlerConfigs: SiteConfig[] = [
   {
     url: '',
     name: 'zhipin-detail',
-    urlPattern: '^https://m\.zhipin\.com/job_detail/.*$',
+    urlPattern: '^https://(?:www|m)\\.zhipin\\.com/job_detail/[A-Za-z0-9_-]+\\.html(?:[?#].*)?$',
     urlBuilder: (url, params, paramsConfig) => {
       return url;
     },
@@ -287,7 +287,7 @@ export const crawlerConfigs: SiteConfig[] = [
   {
     url: '',
     name: 'liepin-detail',
-    urlPattern: '^https://(?:www|m)\\.liepin\\.com/job/.*$',
+    urlPattern: '^https://(?:www|m)\\.liepin\\.com/(?:job|a)/.*$',
     urlBuilder: (url, params, paramsConfig) => {
       return url;
     },

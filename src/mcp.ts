@@ -9,24 +9,17 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { searchJobSources, readJobDetail, SearchParams } from './index';
 import { prepareApplication } from './services/application';
-import { platformLogin, confirmLogin } from './core/login';
+import { startPlatformLogin, confirmLogin } from './core/login';
 import { snapshotProfile, startProfilePoller } from './core/profileState';
-import { watchCheck, resetWatch } from './core/watch';
+import { acknowledgeWatch, watchCheck, resetWatch } from './core/watch';
 import { getMyProfile, setMyProfile } from './core/myProfile';
-import { zhaopinFeedback } from './platforms/zhaopinActions';
-import { jobPlatform, officialJobLink } from './config/jobLinks';
 import {
-  checkTrackedFeedback, isTrackedPlatform,
-  listApplications, prepareTrackedApplication, TRACKED_PLATFORMS
+  acknowledgeFeedback, APPLICATION_STATUSES, checkTrackedFeedback, importFeedback,
+  listApplications, prepareTrackedApplication, SYNC_STATUSES, TRACKED_PLATFORMS
 } from './core/applicationTracker';
-import { captureBossChats } from './core/feedback';
 import { recentActions } from './core/actionsLog';
-import { stageAction, takeAction } from './core/pendingActions';
-import { applyZhipinJob } from './platforms/zhipinActions';
-import { applyZhaopinJob } from './platforms/zhaopinActions';
 
-const LOGIN_PLATFORMS = ['zhipin', 'zhaopin'] as const;
-const ALL_PLATFORMS = ['zhipin', 'liepin', '51job', 'zhaopin'] as const;
+const ALL_PLATFORMS = TRACKED_PLATFORMS;
 
 
 
@@ -122,7 +115,7 @@ const PREPARE_APPLICATION_TOOL: Tool = {
 // 平台登录工具定义
 const PLATFORM_LOGIN_TOOL: Tool = {
   name: 'mcp_platform_login',
-  description: '为指定平台打开官方登录页并等待用户登录。51job 和猎聘的登录提示与个人投递、会话同步权限分开。',
+  description: '准备官方登录入口，立即返回登录链接或已打开的状态。完成后另行查询状态。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -131,12 +124,6 @@ const PLATFORM_LOGIN_TOOL: Tool = {
         enum: ['zhipin', 'zhaopin', 'liepin', '51job'],
         description: '要登录的平台'
       },
-      waitSeconds: {
-        type: 'integer',
-        minimum: 30,
-        maximum: 600,
-        description: '等待人工登录的最长时间（秒），默认 240'
-      }
     },
     required: ['platform']
   }
@@ -168,9 +155,19 @@ const WATCH_CHECK_TOOL: Tool = {
   }
 };
 
+const WATCH_ACK_TOOL: Tool = {
+  name: 'mcp_watch_ack',
+  description: '新职位通知已交付后，确认 mcp_watch_check 返回的 watchId 和 nextCursor。',
+  inputSchema: {
+    type: 'object',
+    properties: { watchId: { type: 'string' }, through: { type: 'integer', minimum: 1 } },
+    required: ['watchId', 'through']
+  }
+};
+
 const WATCH_RESET_TOOL: Tool = {
   name: 'mcp_watch_reset',
-  description: '清空某个监控的已见集合（下次 check 全部视为新职位）。platforms 参数需与创建监控时一致才能命中原记录。',
+  description: '清空监控记录。下次成功检查将重新建立基线。platforms 需与创建监控时一致。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -194,7 +191,7 @@ const CONSUMER = { type: 'string', description: '同一个提醒任务在重启�
 
 const APPLY_JOB_TOOL: Tool = {
   name: 'mcp_apply_job',
-  description: '准备在原站投递。51job 和猎聘会保存本地待提交记录，并提示同账号同职位的已有记录。',
+  description: '保存本地待提交记录，返回由用户自行提交或发送消息的官方职位链接。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -205,31 +202,71 @@ const APPLY_JOB_TOOL: Tool = {
       accountId: ACCOUNT_ID,
       resumeVersion: { type: 'string', description: '用于该职位的本地简历版本代号' }
     },
-    required: ['platform', 'url']
-  }
-};
-
-const APPLY_CONFIRM_TOOL: Tool = {
-  name: 'mcp_apply_confirm',
-  description: '第二阶段：用户确认后执行投递/打招呼（消费确认单，一次性）。执行方式为真实 Chrome 模拟点击（BOSS/智联）。',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      actionId: { type: 'string', description: 'mcp_apply_job 返回的 actionId' }
-    },
-    required: ['actionId']
+    required: ['platform', 'accountId', 'url']
   }
 };
 
 const APPLICATION_LIST_TOOL: Tool = {
   name: 'mcp_application_list',
-  description: '查看 51job 或猎聘一个本地账号的投递台账与最近一次同步状态。',
-  inputSchema: { type: 'object', properties: TRACKED_SCOPE, required: ['platform', 'accountId'] }
+  description: '查看一个平台本地账号的投递台账与最近一次同步状态。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      ...TRACKED_SCOPE,
+      limit: { type: 'integer', minimum: 1, maximum: 100 },
+      offset: { type: 'integer', minimum: 0 }
+    },
+    required: ['platform', 'accountId']
+  }
+};
+
+const FEEDBACK_IMPORT_TOOL: Tool = {
+  name: 'mcp_feedback_import',
+  description: '导入用户在原站核实的投递状态和招聘方回复元数据。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      ...TRACKED_SCOPE,
+      syncStatus: { type: 'string', enum: [...SYNC_STATUSES] },
+      events: {
+        type: 'array',
+        maxItems: 25,
+        items: {
+          anyOf: [
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'application' },
+                url: { type: 'string' }, title: { type: 'string' }, company: { type: 'string' },
+                status: { type: 'string', enum: [...APPLICATION_STATUSES] },
+                observedAt: { type: 'string', description: '在原站观察到状态的时间，带时区 ISO 时间' },
+                resumeVersion: { type: 'string' },
+                receiptReference: { type: 'string', description: '可选的原站回执编号或可核对代号' }
+              },
+              required: ['type', 'url', 'status', 'observedAt']
+            },
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'reply' },
+                conversationId: { type: 'string', description: '同一原站会话使用稳定代号' },
+                messageId: { type: 'string', description: '同一条回复使用稳定代号' },
+                occurredAt: { type: 'string', description: '回复时间，带时区 ISO 时间' },
+                company: { type: 'string' }, url: { type: 'string' }
+              },
+              required: ['type', 'conversationId', 'messageId', 'occurredAt']
+            }
+          ]
+        }
+      }
+    },
+    required: ['platform', 'accountId']
+  }
 };
 
 const CHECK_FEEDBACK_TOOL: Tool = {
   name: 'mcp_check_feedback',
-  description: '查看投递或沟通反馈。51job 和猎聘读取本地已导入动态，处理后用 mcp_feedback_ack 保存进度。',
+  description: '读取已回填的投递动态和招聘方回复。通知交付后用 mcp_feedback_ack 保存进度。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -237,13 +274,28 @@ const CHECK_FEEDBACK_TOOL: Tool = {
       accountId: ACCOUNT_ID,
       consumer: CONSUMER
     },
-    required: ['platform']
+    required: ['platform', 'accountId']
+  }
+};
+
+const FEEDBACK_ACK_TOOL: Tool = {
+  name: 'mcp_feedback_ack',
+  description: '确认已处理的一页反馈。处理完成后传入读取结果的 cursor 和 nextCursor。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      ...TRACKED_SCOPE,
+      consumer: CONSUMER,
+      cursor: { type: 'integer', minimum: 0 },
+      through: { type: 'integer', minimum: 0, description: '读取结果中的 nextCursor' }
+    },
+    required: ['platform', 'accountId', 'cursor', 'through']
   }
 };
 
 const ACTIONS_LOG_TOOL: Tool = {
   name: 'mcp_actions_log',
-  description: '查看最近的投递/打招呼动作日志与今日配额余量。',
+  description: '查看旧版本记录的投递和沟通动作。',
   inputSchema: { type: 'object', properties: {} }
 };
 
@@ -314,7 +366,7 @@ function isValidJobDetailParams(args: unknown): args is JobDetailParams {
 const server = new Server(
   {
     name: 'mcp-jobs',
-    version: '1.0.0',
+    version: require('../package.json').version,
   },
   {
     capabilities: {
@@ -329,16 +381,26 @@ function jsonResult(value: unknown, isError = false) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value) }], isError };
 }
 
-// 注册工具列表处理器
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [SEARCH_JOB_TOOL, JOB_DETAIL_TOOL, PREPARE_APPLICATION_TOOL, PLATFORM_LOGIN_TOOL, LOGIN_CONFIRMED_TOOL, PROFILE_STATUS_TOOL, WATCH_CHECK_TOOL, WATCH_RESET_TOOL, MY_PROFILE_TOOL, APPLY_JOB_TOOL, APPLY_CONFIRM_TOOL, APPLICATION_LIST_TOOL, CHECK_FEEDBACK_TOOL, ACTIONS_LOG_TOOL],
-}));
+const tools = [SEARCH_JOB_TOOL, JOB_DETAIL_TOOL, PREPARE_APPLICATION_TOOL, PLATFORM_LOGIN_TOOL,
+  LOGIN_CONFIRMED_TOOL, PROFILE_STATUS_TOOL, WATCH_CHECK_TOOL, WATCH_ACK_TOOL, WATCH_RESET_TOOL, MY_PROFILE_TOOL,
+  APPLY_JOB_TOOL, APPLICATION_LIST_TOOL, FEEDBACK_IMPORT_TOOL, CHECK_FEEDBACK_TOOL, FEEDBACK_ACK_TOOL,
+  ACTIONS_LOG_TOOL];
+const monitorTools = [PROFILE_STATUS_TOOL, WATCH_CHECK_TOOL, WATCH_ACK_TOOL, APPLICATION_LIST_TOOL, CHECK_FEEDBACK_TOOL, FEEDBACK_ACK_TOOL];
+const availableTools = process.env.MCP_JOBS_MONITOR_ONLY === '1' ? monitorTools : tools;
+
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: availableTools }));
 
 // 注册工具调用处理器
 server.setRequestHandler(CallToolRequestSchema, async (request, { signal }) => {
   const startTime = Date.now();
   try {
     const { name, arguments: args } = request.params;
+
+    if (!availableTools.some(tool => tool.name === name)) {
+      throw new Error(name === 'mcp_apply_confirm'
+        ? '请通过 mcp_apply_job 获取职位链接，在官方页面核对并完成操作'
+        : '当前模式未提供该工具');
+    }
 
     // 记录请求日志
     server.sendLoggingMessage({
@@ -420,13 +482,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, { signal }) => {
         if (!validPlatforms.includes(String(fields.platform))) {
           throw new Error('platform 必须是 zhipin/zhaopin/liepin/51job');
         }
-        const waitSeconds = typeof fields.waitSeconds === 'number' && fields.waitSeconds >= 30 ? Math.min(fields.waitSeconds, 600) : 240;
-        server.sendLoggingMessage({ level: 'info', data: `打开 ${fields.platform} 登录页并等待人工登录（最长 ${waitSeconds}s）` });
-        const outcome = await platformLogin(fields.platform as any, waitSeconds * 1000, signal);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(outcome) }],
-          isError: outcome.status === 'manual_required'
-        };
+        return jsonResult(await startPlatformLogin(fields.platform as typeof ALL_PLATFORMS[number], signal));
       }
 
       case 'mcp_profile_status': {
@@ -444,9 +500,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request, { signal }) => {
           keyword: fields.keyword,
           city: typeof fields.city === 'string' ? fields.city : undefined,
           platforms
-        });
+        }, signal);
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       }
+
+      case 'mcp_watch_ack':
+        return jsonResult(acknowledgeWatch(args.watchId as string, args.through as number));
 
       case 'mcp_watch_reset': {
         const fields = args as Record<string, unknown>;
@@ -473,70 +532,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request, { signal }) => {
         };
       }
 
-      case 'mcp_apply_job': {
-        const fields = args as Record<string, unknown>;
-        if (isTrackedPlatform(fields.platform)) {
-          return jsonResult(prepareTrackedApplication(fields));
-        }
-        const url = typeof fields.url === 'string' && officialJobLink(fields.url);
-        if (!url || (fields.platform !== 'zhipin' && fields.platform !== 'zhaopin') ||
-            jobPlatform(url) !== fields.platform) {
-          throw new Error('职位链接与所选平台不匹配');
-        }
-        // BOSS/智联：两阶段模拟点击（stage 生成确认单 → 用户确认 → confirm 执行）
-        const loggedToday = recentActions(50).filter(r => r.platform === fields.platform && r.at.slice(0, 10) === new Date().toISOString().slice(0, 10)).length;
-        const action = stageAction({
-          platform: String(fields.platform),
-          kind: fields.platform === 'zhipin' ? 'greet' : 'apply',
-          url: url.href,
-          title: typeof fields.title === 'string' ? fields.title : undefined,
-          message: typeof fields.message === 'string' ? fields.message : undefined
-        });
-        return jsonResult({
-          status: 'pending_confirmation',
-          actionId: action.id,
-          platform: action.platform,
-          kind: action.kind === 'greet' ? '打招呼（BOSS 聊天）' : '投递申请',
-          url: action.url,
-          title: action.title,
-          message: action.message ?? (action.platform === 'zhipin' ? '（平台默认招呼语）' : undefined),
-          todayRecorded: loggedToday,
-          note: '本地只做审计记录；平台服务端配额（如 BOSS 非会员 ~10/天）由平台自己管控，触发时以页面真实反馈为准',
-          expiresInMinutes: 30,
-          instruction: '把以上预览给用户看；用户明确确认后调用 mcp_apply_confirm({actionId}) 执行模拟点击'
-        });
-      }
-
-      case 'mcp_apply_confirm': {
-        const fields = args as Record<string, unknown>;
-        if (typeof fields.actionId !== 'string') throw new Error('actionId 必填');
-        const action = takeAction(fields.actionId);
-        if (!action) throw new Error('确认单不存在或已过期（30 分钟有效期），请重新 mcp_apply_job');
-        server.sendLoggingMessage({ level: 'info', data: `执行 ${action.platform} ${action.kind}: ${action.url}` });
-        if (action.platform === 'zhipin') {
-          const result = await applyZhipinJob(action.url, action.message, action.title);
-          return jsonResult(result, result.status === 'failed');
-        }
-        const result = await applyZhaopinJob(action.url, action.title);
-        return jsonResult(result, result.status === 'failed');
-      }
+      case 'mcp_apply_job':
+        return jsonResult(prepareTrackedApplication(args));
 
       case 'mcp_application_list':
-        return jsonResult(listApplications(args as Record<string, unknown>));
+        return jsonResult(listApplications(args));
 
-      case 'mcp_check_feedback': {
-        const fields = args as Record<string, unknown>;
-        if (isTrackedPlatform(fields.platform)) return jsonResult(checkTrackedFeedback(fields));
-        if (fields.platform === 'zhipin') {
-          const chats = await captureBossChats(20000);
-          return { content: [{ type: 'text', text: JSON.stringify(chats, null, 2) }] };
-        }
-        if (fields.platform === 'zhaopin') {
-          const fb = await zhaopinFeedback();
-          return { content: [{ type: 'text', text: JSON.stringify(fb, null, 2) }] };
-        }
-        throw new Error('不支持的平台');
-      }
+      case 'mcp_feedback_import':
+        return jsonResult(importFeedback(args));
+
+      case 'mcp_check_feedback':
+        return jsonResult(checkTrackedFeedback(args));
+
+      case 'mcp_feedback_ack':
+        return jsonResult(acknowledgeFeedback(args));
 
       case 'mcp_login_confirmed': {
         const fields = args as Record<string, unknown>;

@@ -27,14 +27,12 @@ export async function searchLiepin(keyword: string, page: number, signal?: Abort
     cdpUrl, 'liepin-search', target,
     // 精确匹配职位列表接口，排除 pc-search-job-cond-init（筛选条件初始化）
     /api-c\.liepin\.com\/api\/com\.liepin\.searchfront4c\.pc-search-job(?:\?|$)/,
-    Math.max(timeoutMs - 2000, 8000), signal,
-    // 过滤 flag=0 的错误响应（-1400 环境校验等），等 SPA 重试出的真数据
-    json => Number((json as { flag?: unknown }).flag ?? 1) === 1
+    timeoutMs, signal
   );
   if (signal?.aborted) return null;
   if (!json) return null;
   const envelope = json as Record<string, unknown>;
-  if (envelope.flag === 0) return { status: classifyLiepinError(String(envelope.errorCode ?? envelope.code ?? '')), jobs: [] };
+  if (Number(envelope.flag) === 0) return { status: classifyLiepinError(String(envelope.errorCode ?? envelope.code ?? '')), jobs: [] };
   const jobs = harvestJobs(envelope.data ?? envelope, 'liepin', 'https://www.liepin.com');
   return { status: jobs.length ? 'ok' : 'empty', jobs };
 }

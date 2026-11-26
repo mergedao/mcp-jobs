@@ -33,7 +33,6 @@ const STATE_FILE = () => path.join(profileDir(), '..', 'profile-state.json');
 type StateShape = {
   lastLoginAt?: Record<string, string>;
   lastVerifiedAt?: Record<string, string>;
-  cookieBaselines?: Record<string, string[]>;
   lastSnapshot?: ProfileSnapshot;
 };
 
@@ -48,26 +47,15 @@ function readState(): StateShape {
 function writeState(patch: Partial<StateShape>): void {
   try {
     const merged = { ...readState(), ...patch };
-    fs.writeFileSync(STATE_FILE(), JSON.stringify(merged, null, 2));
+    const file = STATE_FILE();
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, JSON.stringify(merged, null, 2), { mode: 0o600 });
   } catch { /* 状态文件失败不影响主流程 */ }
 }
 
 export function recordLogin(platform: string): void {
   const state = readState();
   state.lastLoginAt = { ...(state.lastLoginAt ?? {}), [platform]: new Date().toISOString() };
-  state.lastVerifiedAt = { ...(state.lastVerifiedAt ?? {}), [platform]: new Date().toISOString() };
-  writeState(state);
-}
-
-/** cookie 基线持久化：登录检测跨进程/跨时间可靠（不在监视期登录也能被发现）。 */
-export function getCookieBaseline(domain: string): string[] | undefined {
-  const state = readState();
-  return state.cookieBaselines?.[domain];
-}
-
-export function setCookieBaseline(domain: string, keys: string[]): void {
-  const state = readState();
-  state.cookieBaselines = { ...(state.cookieBaselines ?? {}), [domain]: keys };
   writeState(state);
 }
 
@@ -111,28 +99,15 @@ export async function snapshotProfile(): Promise<ProfileSnapshot> {
     note: chromeRunning ? undefined : '托管 Chrome 未运行，状态未知'
   });
 
-  // 智联：无稳定公开的登录 cookie 名，用「最近一次验证记录 + 托管探针历史」表达
-  const zhaopinLastLogin = state.lastLoginAt?.zhaopin;
-  const zhaopinVerified = state.lastVerifiedAt?.zhaopin;
-  platforms.push({
-    platform: 'zhaopin',
-    loginRequired: true,
-    loggedIn: zhaopinVerified ? true : 'unknown',
-    lastLoginAt: zhaopinLastLogin,
-    lastVerifiedAt: zhaopinVerified,
-    method: zhaopinVerified ? 'recorded' : 'none',
-    note: zhaopinVerified ? undefined : '尚未验证过登录态；调用 mcp_platform_login(platform=zhaopin) 完成登录'
-  });
-
-  for (const name of ['liepin', '51job']) {
+  for (const name of ['zhaopin', 'liepin', '51job']) {
+    const lastLoginAt = state.lastLoginAt?.[name];
     platforms.push({
       platform: name,
       loginRequired: true,
-      loggedIn: state.lastLoginAt?.[name] ? true : 'unknown',
-      lastLoginAt: state.lastLoginAt?.[name],
-      lastVerifiedAt: state.lastVerifiedAt?.[name],
-      method: state.lastLoginAt?.[name] ? 'recorded' : 'none',
-      note: state.lastLoginAt?.[name] ? '登录态已由用户确认记录' : '公开搜索可用性由搜索结果报告。投递和消息权限需在官方页面确认，台账按本地账号代号隔离。'
+      loggedIn: 'unknown',
+      lastLoginAt,
+      method: lastLoginAt ? 'recorded' : 'none',
+      note: lastLoginAt ? '仅记录用户确认时间，当前会话未验证。' : '请在官方页面核对当前会话。'
     });
   }
 

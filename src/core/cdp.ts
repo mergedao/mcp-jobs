@@ -94,6 +94,10 @@ export function jitterPause(minMs: number, maxMs: number): Promise<void> {
 
 export async function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return promise;
+  if (signal.aborted) {
+    void promise.catch(() => {});
+    throw new Error('aborted');
+  }
   return new Promise<T>((resolve, reject) => {
     const cancel = () => reject(new Error('aborted'));
     signal.addEventListener('abort', cancel, { once: true });
@@ -105,7 +109,9 @@ export async function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): P
 }
 
 export async function httpJson<T = any>(url: string, init?: RequestInit): Promise<T | null> {
-  return fetch(url, init).then(r => r.json()).catch(() => null);
+  const timeout = AbortSignal.timeout(4000);
+  const signal = init?.signal ? AbortSignal.any([timeout, init.signal]) : timeout;
+  return fetch(url, { ...init, signal }).then(r => r.ok ? r.json() : null).catch(() => null);
 }
 
 export function safeJsonParse(text: string): unknown {
@@ -190,8 +196,9 @@ export async function rawCaptureJson(
   signal?: AbortSignal,
   validate?: (json: any, responseUrl: string) => boolean
 ): Promise<unknown | null> {
+  if (signal?.aborted) return null;
   const entry = await rawEnsurePage(cdpUrl, roleKey, targetUrl);
-  if (!entry) return null;
+  if (!entry || signal?.aborted) return null;
   const { session } = entry;
   return new Promise(resolve => {
     let settled = false;
@@ -249,147 +256,6 @@ export function resetBoundPages(): void {
   lastTabSpawnAt.clear();
 }
 
-/* ---------- DOM/输入操作（写操作专用）：DOM 域找元素（支持文字搜索，不用 Runtime），
-   Input 域派发受信任事件（isTrusted=true），全程人类节奏噪声。 ---------- */
-
-export type DomNode = { nodeId: number; html: string };
-
-/** 确保 DOM 域就绪的页面会话。 */
-export async function rawDomPage(cdpUrl: string, roleKey: string, preferredUrl: string): Promise<BoundPage | null> {
-  const entry = await rawEnsurePage(cdpUrl, roleKey, preferredUrl);
-  if (!entry) return null;
-  await rawSend(entry.session, 'DOM.enable').catch(() => {});
-  return entry;
-}
-
-/** 按文字/选择器搜索节点（DOM.performSearch 支持 CSS 选择器与文字）。 */
-export async function domSearch(session: RawSession, query: string, maxNodes = 8): Promise<DomNode[]> {
-  try {
-    await rawSend(session, 'DOM.getDocument', { depth: 0 }).catch(() => {}); // 初始化 DOM 代理树
-    const search = await rawSend<{ searchId: string; resultCount: number }>(session, 'DOM.performSearch', { query, caseSensitive: false });
-    if (!search.resultCount) return [];
-    const results = await rawSend<{ nodeIds: number[] }>(session, 'DOM.getSearchResults', {
-      searchId: search.searchId,
-      fromIndex: 0,
-      toIndex: Math.min(search.resultCount, maxNodes)
-    });
-    const nodes: DomNode[] = [];
-    for (const nodeId of results.nodeIds ?? []) {
-      const html = await rawSend<{ outerHTML: string }>(session, 'DOM.getOuterHTML', { nodeId })
-        .then(r => r.outerHTML).catch(() => '');
-      nodes.push({ nodeId, html });
-    }
-    return nodes;
-  } catch {
-    return [];
-  }
-}
-
-/** 节点内容盒中心坐标（用于鼠标点击）。 */
-export async function domBoxCenter(session: RawSession, nodeId: number): Promise<{ x: number; y: number } | null> {
-  try {
-    const model = await rawSend<{ model: { content: number[] } }>(session, 'DOM.getBoxModel', { nodeId });
-    const c = model.model?.content;
-    if (!c || c.length < 8) return null;
-    const x = (c[0] + c[2] + c[4] + c[6]) / 4;
-    const y = (c[1] + c[3] + c[5] + c[7]) / 4;
-    return { x: Math.round(x), y: Math.round(y) };
-  } catch {
-    return null;
-  }
-}
-
-/** 人类节奏点击：多段鼠标移动带抖动 → 按下 → 停顿 → 抬起。 */
-export async function humanClickAt(session: RawSession, x: number, y: number): Promise<void> {
-  // 分 3 段逼近目标，每段带 ±3px 抖动
-  let cx = x + (Math.random() * 40 - 20);
-  let cy = y + (Math.random() * 30 - 15);
-  const steps = 3 + Math.floor(Math.random() * 2);
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
-    cx += (x - cx) * t;
-    cy += (y - cy) * t;
-    await rawSend(session, 'Input.dispatchMouseEvent', {
-      type: 'mouseMoved',
-      x: Math.round(cx + (Math.random() * 4 - 2)),
-      y: Math.round(cy + (Math.random() * 4 - 2))
-    }).catch(() => {});
-    await pause(40 + Math.floor(Math.random() * 90));
-  }
-  await rawSend(session, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }).catch(() => {});
-  await pause(120 + Math.floor(Math.random() * 260)); // 点前停顿
-  await rawSend(session, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }).catch(() => {});
-  await pause(60 + Math.floor(Math.random() * 90));
-  await rawSend(session, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }).catch(() => {});
-  await pause(200 + Math.floor(Math.random() * 400)); // 点后停顿
-}
-
-/** 人类节奏滚动（滚轮事件）。 */
-export async function humanScroll(session: RawSession, x: number, y: number, deltaY: number): Promise<void> {
-  await rawSend(session, 'Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: 0, deltaY }).catch(() => {});
-  await pause(300 + Math.floor(Math.random() * 600));
-}
-
-/** 人类节奏输入文字：先点击聚焦，再逐字符键盘事件（随机 45-140ms/字符）。 */
-export async function humanType(session: RawSession, x: number, y: number, text: string): Promise<void> {
-  await humanClickAt(session, x, y);
-  for (const ch of text) {
-    await rawSend(session, 'Input.dispatchKeyEvent', {
-      type: 'keyDown',
-      text: ch,
-      unmodifiedText: ch,
-      key: ch
-    }).catch(() => {});
-    await rawSend(session, 'Input.dispatchKeyEvent', {
-      type: 'keyUp',
-      key: ch
-    }).catch(() => {});
-    await pause(45 + Math.floor(Math.random() * 95));
-  }
-}
-
-/** 页面等待（被动）：等指定文字出现在 DOM（轮询 DOM.performSearch，零 Runtime）。 */
-export async function waitForText(session: RawSession, text: string, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline && !signal?.aborted) {
-    const nodes = await domSearch(session, text, 1);
-    if (nodes.length) return true;
-    await pause(800 + Math.floor(Math.random() * 700));
-  }
-  return false;
-}
-
-/**
- * 写操作安全闸（review P0）：把 role 标签导航到确认单指定的职位页，并核对当前页面
- * 确实是目标职位——职位标题片段出现在 DOM 中。核对不过即失败中止，
- * 防止「确认单是 A 职位、点击却发生在 B 页面」的错目标风险。
- */
-export async function navigateAndVerifyTarget(
-  session: RawSession,
-  jobUrl: string,
-  titleFragment: string | undefined,
-  timeoutMs = 20000,
-  signal?: AbortSignal
-): Promise<{ ok: boolean; detail: string }> {
-  await rawSend(session, 'Page.navigate', { url: jobUrl }).catch(() => {});
-  const deadline = Date.now() + timeoutMs;
-  // 无标题时：导航目标就是确认单 URL 本身（URL 即绑定），等页面稳定后放行
-  if (!titleFragment) {
-    await pause(2500);
-    return { ok: true, detail: '已导航到确认单 URL（无标题可核对）' };
-  }
-  const frag = titleFragment.trim().slice(0, 12);
-  while (Date.now() < deadline && !signal?.aborted) {
-    const hits = await domSearch(session, frag, 1);
-    if (hits.length) return { ok: true, detail: `目标核对通过（标题「${frag}」命中）` };
-    await pause(800 + Math.floor(Math.random() * 600));
-  }
-  return {
-    ok: false,
-    detail: `目标核对失败：${Math.round(timeoutMs / 1000)}s 内未在页面确认到「${frag}」。为防错目标已中止写操作`
-  };
-}
-
 /** 通用：导航目标页并捕获 Document 主文档响应体（SSR 数据提取用；同样零 Runtime 附加）。 */
 export async function rawCaptureDocument(
   cdpUrl: string,
@@ -398,8 +264,9 @@ export async function rawCaptureDocument(
   timeoutMs: number,
   signal?: AbortSignal
 ): Promise<string | null> {
+  if (signal?.aborted) return null;
   const entry = await rawEnsurePage(cdpUrl, roleKey, targetUrl);
-  if (!entry) return null;
+  if (!entry || signal?.aborted) return null;
   const { session } = entry;
   const host = hostOf(targetUrl);
   return new Promise(resolve => {

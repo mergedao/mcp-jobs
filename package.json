@@ -1,13 +1,15 @@
 {
   "name": "mcp-jobs",
   "version": "2.0.0",
-  "description": "四平台职位聚合 MCP — normalized job search across BOSS Zhipin / Liepin / 51job / Zhaopin with login-state awareness, semi-automatic apply and incremental monitoring",
+  "description": "四平台职位聚合 MCP — normalized job search across BOSS Zhipin / Liepin / 51job / Zhaopin with login-state awareness, original-site application handoff and incremental monitoring",
   "main": "./dist/index.js",
   "bin": {
     "mcp-jobs": "./dist/mcp.js"
   },
   "scripts": {
     "build": "tsc",
+    "prebuild": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "prepack": "npm run build",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "test": "pnpm build && node --test test/*.test.cjs"

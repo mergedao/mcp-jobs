@@ -1,7 +1,6 @@
 import { harvestJobs } from './harvest';
 import { managedCdpUrl } from '../core/browser';
 import { httpJson, hostOf, portOpen, rawCaptureDocument, safeJsonParse } from '../core/cdp';
-import { recordLogin } from '../core/profileState';
 import type { ApiSearchResult } from './types';
 import type { RawFilters } from './filters';
 
@@ -54,7 +53,6 @@ export async function searchZhaopin(keyword: string, city: string | undefined, p
   }
   const jobs = harvestJobs(state, 'zhaopin', 'https://www.zhaopin.com');
   if (jobs.length) {
-    recordLogin('zhaopin'); // 搜索成功 = 登录态有效（profile 感知自动转绿）
     return { status: 'ok', jobs };
   }
   return { status: 'empty', jobs: [] };

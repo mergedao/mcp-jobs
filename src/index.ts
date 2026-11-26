@@ -8,7 +8,7 @@ import { withRequestBudget } from './services/requestBudget';
 import { readPublicHtml } from './services/publicHtml';
 import { platformApiSearch, closePlatformApis } from './platforms/registry';
 import { normalizeFilters, clientFilter } from './platforms/filters';
-import { jitterPause } from './core/cdp';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { ApiSearchResult } from './platforms/types';
 
 export interface SearchParams {
@@ -21,6 +21,7 @@ export interface SearchParams {
   jobType?: string;
   maxPages?: number;
   publicPages?: string[];
+  platforms?: JobPlatform[];
 }
 
 export type SourceStatus = PageFailure | 'ok' | 'empty' | 'unsupported_source' | 'unsupported_filters';
@@ -95,6 +96,8 @@ type SourceResult = {
   publicPageUrl?: string;
   status: SourceStatus;
   count: number;
+  partial?: boolean;
+  interruption?: SourceStatus;
   browserUrl?: string;
   action?: string;
 };
@@ -120,7 +123,7 @@ function searchSources(params: SearchParams): SearchSource[] {
     });
   }
 
-  return jobSearchUrls.map(source => {
+  return jobSearchUrls.filter(source => !params.platforms || params.platforms.includes(source.name)).map(source => {
     const beijing = params.city === '北京' || params.city === '北京市';
     if (source.name === 'liepin' && beijing && !params.salary && !params.workYear) {
       const url = 'https://www.liepin.com/city-bj/';
@@ -152,55 +155,79 @@ export async function searchJobSources(params: SearchParams = {}, parent?: Abort
   return withRequestBudget(async (signal, timeoutMs) => {
     await Promise.all(selected.map(async (source, index) => {
       const initial = sources[index];
-      if (source.publicSample && (salary || workYear || education || jobType || pages > 1)) {
-        sources[index] = {
-          ...initial,
-          status: 'unsupported_filters',
-          browserUrl: source.browserUrl,
-          action: '此公开页只支持在当前结果中按职位名称和城市筛选'
-        };
+      const unsupportedSample = source.publicSample && Boolean(salary || workYear || education || jobType || pages > 1);
+      const unsupported = (): SourceResult => ({
+        ...initial, status: 'unsupported_filters', browserUrl: source.browserUrl,
+        action: '此公开页只支持在当前结果中按职位名称和城市筛选'
+      });
+      if (unsupportedSample && params.publicPages) {
+        sources[index] = unsupported();
         return;
       }
-      // S1 平台 API 层：数据最全的通道（含原生筛选码），多页串行翻页；失败落回 S2 公开页与 DOM。
-      let apiFailure: ApiSearchResult | null = null;
+      let apiStatus: ApiSearchResult | null = null;
       if (!params.publicPages) {
         const collected: Job[] = [];
         const seenIds = new Set<string>();
-        const startTime = Date.now();
-        let lastStatus: ApiSearchResult['status'] = 'timeout';
-        for (let currentPage = page; currentPage < page + pages; currentPage++) {
-          const api = await platformApiSearch(source.name, { keyword, city, page: currentPage, filters }, signal, timeoutMs);
-          lastStatus = api?.status ?? 'timeout';
-          if (api?.jobs.length) {
-            for (const job of api.jobs) {
-              const id = String(job.jobDetail ?? '');
-              if (seenIds.has(id)) continue;
-              seenIds.add(id);
-              collected.push({ ...job, source: source.name });
-            }
-          }
-          // 翻页节奏：BOSS 红线 12–22s，其余 1.4–2.8s；超预算立即收敛
-          if (currentPage + 1 < page + pages && Date.now() - startTime < timeoutMs * 0.7) {
-            if (source.name === 'zhipin') await jitterPause(12000, 22000);
-            else await jitterPause(1400, 2800);
-          } else break;
-          if (lastStatus !== 'ok') break; // 该页非 ok 就不再翻
-        }
-        const filtered = clientFilter(collected, filters);
-        if (collected.length) {
-          jobs[index] = filtered.map(job => ({ ...job, source: source.name }));
+        const deadline = Date.now() + timeoutMs;
+        let pagesCompleted = 0;
+        let hasData = false;
+        const saveProgress = (partial: boolean, interruption?: SourceStatus) => {
+          const locationMatched = source.name === 'liepin' && city
+            ? collected.filter(job => matches(job.address, city.replace(/市$/, ''))) : collected;
+          const filtered = clientFilter(locationMatched, filters);
+          jobs[index] = filtered;
           sources[index] = {
-            ...initial,
-            coverage: 'search_api',
-            status: filtered.length ? 'ok' : 'empty',
-            count: filtered.length,
-            ...(pages > 1 ? { scanned: collected.length } : {})
+            ...initial, coverage: 'search_api', status: filtered.length ? 'ok' : 'empty',
+            count: filtered.length, partial, ...(interruption ? { interruption } : {})
+          };
+        };
+        for (let currentPage = page; currentPage < page + pages && !signal.aborted; currentPage++) {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0 || currentPage > 10) break;
+          // Leave time for the public-page fallback if the first source attempt stalls.
+          const attemptBudget = pagesCompleted === 0 ? Math.min(remaining, Math.max(1, Math.floor(timeoutMs * 0.7))) : remaining;
+          const attemptSignal = AbortSignal.any([signal, AbortSignal.timeout(attemptBudget)]);
+          const api = await platformApiSearch(source.name, { keyword, city, page: currentPage, filters }, attemptSignal, attemptBudget);
+          if (signal.aborted) return;
+          apiStatus = api;
+          if (!api || api.status !== 'ok') break;
+          pagesCompleted++;
+          hasData = true;
+          for (const job of api.jobs) {
+            const link = officialJobLink(job.jobDetail);
+            if (!link || jobPlatform(link) !== source.name) continue;
+            if (link.hostname === 'm.liepin.com') link.hostname = 'www.liepin.com';
+            link.hash = '';
+            link.search = '';
+            if (seenIds.has(link.href)) continue;
+            seenIds.add(link.href);
+            collected.push({ ...job, jobDetail: link.href, source: source.name });
+          }
+          saveProgress(pagesCompleted < pages);
+          if (pagesCompleted === pages) break;
+          const interval = source.name === 'zhipin' ? 12000 : 1400;
+          if (deadline - Date.now() <= interval) break;
+          await delay(interval, undefined, { signal }).catch(() => {});
+        }
+        if (signal.aborted) return;
+        if (hasData) {
+          const partial = pagesCompleted < pages && apiStatus?.status !== 'empty';
+          const interruption = partial && apiStatus?.status !== 'ok' ? apiStatus?.status : undefined;
+          saveProgress(partial, interruption);
+          return;
+        }
+        if (apiStatus && ['empty', 'login_required', 'access_restricted', 'rate_limited'].includes(apiStatus.status)) {
+          sources[index] = {
+            ...initial, coverage: 'search_api', status: apiStatus.status,
+            ...browserHandoff(source.browserUrl, apiStatus.status),
+            ...(apiStatus.note ? { action: apiStatus.note } : {})
           };
           return;
         }
-        if (lastStatus === 'login_required' || lastStatus === 'access_restricted' || lastStatus === 'rate_limited') {
-          apiFailure = { status: lastStatus, jobs: [] };
-        }
+      }
+      if (unsupportedSample) {
+        sources[index] = unsupported();
+        return;
       }
       const dataset = await crawlByUrl(source.url, {
         keyword: [keyword, city].filter(Boolean).join(' '),
@@ -228,21 +255,17 @@ export async function searchJobSources(params: SearchParams = {}, parent?: Abort
           source.cityScoped || matches(item.address, city?.replace(/市$/, ''))
         )).slice(start, start + 25)
         : clientFilter(parsed, filters);
-      const domStatus = result.status !== 'ok' ? result.status
+      const status = result.status !== 'ok' ? result.status
         : !parsed.length ? 'unrecognized_page'
         : !items.length ? 'empty'
         : 'ok';
-      const generic = domStatus === 'timeout' || domStatus === 'unavailable';
-      const status = apiFailure && generic ? apiFailure.status : domStatus;
       jobs[index] = items;
       sources[index] = {
         ...initial,
         status,
         count: items.length,
         ...(source.publicSample ? { scanned: parsed.length, publicPageUrl: source.url } : {}),
-        ...(apiFailure && generic
-          ? { ...(apiFailure.note ? { action: apiFailure.note } : {}), ...browserHandoff(source.browserUrl, status) }
-          : browserHandoff(source.browserUrl, status))
+        ...browserHandoff(source.browserUrl, status)
       };
     }));
     return snapshot();
